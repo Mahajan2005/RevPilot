@@ -1,0 +1,101 @@
+[
+  {
+    "payment_id": "pay_002",
+    "customer_id": "cust_002",
+    "decision": "RETRY",
+    "action": "Payment retried",
+    "result": "Recovered",
+    "retry_attempt": 1,
+    "reason": "Temporary bank or network failure can be safely retried."
+  },
+  {
+    "payment_id": "pay_003",
+    "customer_id": "cust_003",
+    "decision": "RETRY",
+    "action": "Payment retried",
+    "result": "Recovered",
+    "retry_attempt": 1,
+    "reason": "Temporary bank or network failure can be safely retried."
+  },
+  {
+    "payment_id": "pay_004",
+    "customer_id": "cust_004",
+    "decision": "CHECK_LATER",
+    "action": "Wait and check payment status later",
+    "result": "At Risk",
+    "retry_attempt": "No retry attempted",
+    "reason": "Gateway response timed out, so the final payment state is uncertain."
+  },
+  {
+    "payment_id": "pay_005",
+    "customer_id": "cust_005",
+    "decision": "RETRY",
+    "action": "Retry payment once",
+    "result": "Recovered",
+    "retry_attempt": 1,
+    "reason": "Temporary UPI timeout can be retried without immediately requiring customer action."
+  },
+  {
+    "payment_id": "pay_006",
+    "customer_id": "cust_006",
+    "decision": "CHECK_LATER",
+    "action": "Wait and check payment status later",
+    "result": "At Risk",
+    "retry_attempt": "No retry attempted",
+    "reason": "The UPI payment may still complete, so another payment attempt could create a duplicate."
+  },
+  {
+    "payment_id": "pay_007",
+    "customer_id": "cust_007",
+    "decision": "NOTIFY_CUSTOMER",
+    "action": "Notify customer to retry payment",
+    "result": "At Risk",
+    "retry_attempt": "No retry attempted",
+    "reason": "Insufficient funds require customer action before another payment attempt."
+  },
+  {
+    "payment_id": "pay_008",
+    "customer_id": "cust_008",
+    "decision": "REQUEST_PAYMENT_METHOD_UPDATE",
+    "action": "Request a new payment method",
+    "result": "At Risk",
+    "retry_attempt": "No retry attempted",
+    "reason": "The card has expired, so the customer needs to provide another payment method."
+  },
+  {
+    "payment_id": "pay_009",
+    "customer_id": "cust_009",
+    "decision": "NOTIFY_CUSTOMER",
+    "action": "Notify customer to complete payment authentication",
+    "result": "At Risk",
+    "retry_attempt": "No retry attempted",
+    "reason": "Customer authentication must be completed before the payment can proceed."
+  },
+  {
+    "payment_id": "pay_010",
+    "customer_id": "cust_010",
+    "decision": "NOTIFY_CUSTOMER",
+    "action": "Notify customer to complete payment action",
+    "result": "At Risk",
+    "retry_attempt": "No retry attempted",
+    "reason": "The payment limit must be resolved before another automated attempt."
+  },
+  {
+    "payment_id": "pay_011",
+    "customer_id": "cust_011",
+    "decision": "STOP",
+    "action": "Stop recovery to prevent duplicate charge",
+    "result": "At Risk",
+    "retry_attempt": "No retry attempted",
+    "reason": "Possible duplicate-payment risk requires no further automated retry."
+  },
+  {
+    "payment_id": "pay_012",
+    "customer_id": "cust_012",
+    "decision": "MANUAL_REVIEW",
+    "action": "Send to manual review",
+    "result": "At Risk",
+    "retry_attempt": "No retry attempted",
+    "reason": "The failure type is not recognized as safe for automated recovery."
+  }
+]
