@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import "./App.css";
+import CustomerView from "./CustomerView";
 
 type IconName =
   | "grid"
@@ -160,18 +161,6 @@ function formatAmount(amount: number | string | undefined) {
   )}`;
 }
 
-/*
- * IMPORTANT:
- * This converts a displayed amount like:
- *
- * ₹12,000
- *
- * into:
- *
- * 12000
- *
- * This is used for revenue calculations.
- */
 function parseAmount(amount: string) {
   if (!amount || amount === "—") {
     return 0;
@@ -275,8 +264,26 @@ function App() {
       "overview" | "actions"
     >("overview");
 
+  const [viewMode, setViewMode] =
+    useState<
+      "merchant" | "customer"
+    >("merchant");
+
+  /*
+   * NEW:
+   *
+   * Stores the exact payment selected
+   * from the merchant dashboard.
+   *
+   * CustomerView will use this ID to
+   * load the same payment from the backend.
+   */
+  const [selectedPaymentId, setSelectedPaymentId] =
+    useState<string | null>(null);
+
   const [payments, setPayments] =
     useState<Payment[]>([]);
+    
 
   /*
    * Load payment data from Flask.
@@ -310,16 +317,6 @@ function App() {
         data
       );
 
-      /*
-       * Only show payments relevant
-       * to recovery.
-       *
-       * Recovered by agent
-       * OR
-       * failed
-       * OR
-       * pending
-       */
       const recoveryPayments: Payment[] =
         data
           .filter(
@@ -367,9 +364,6 @@ function App() {
     }
   };
 
-  /*
-   * Load payments when app starts.
-   */
   useEffect(() => {
     loadPayments();
   }, []);
@@ -422,12 +416,6 @@ function App() {
         data
       );
 
-      /*
-       * Reload the actual backend data.
-       *
-       * This ensures the dashboard reflects
-       * payments.json after the agent runs.
-       */
       await loadPayments();
 
       const recoveredCount =
@@ -505,6 +493,12 @@ function App() {
 
       await loadPayments();
 
+      /*
+       * Reset the selected customer payment
+       * too, so the next demo starts clean.
+       */
+      setSelectedPaymentId(null);
+
       setAgentMessage(
         data.message ||
           "Demo payments reset to the initial scenario."
@@ -544,15 +538,6 @@ function App() {
         "At Risk"
     ).length;
 
-  /*
-   * FIXED REVENUE CALCULATION
-   *
-   * We use parseAmount() so:
-   *
-   * ₹12,000 -> 12000
-   * ₹6,500  -> 6500
-   * ₹3,200  -> 3200
-   */
   const recoveredRevenue =
     payments
       .filter(
@@ -585,15 +570,32 @@ function App() {
         0
       );
 
-  /*
-   * Payments containing an agent decision
-   * are shown in Agent Actions.
-   */
   const agentActions =
     payments.filter(
       (payment) =>
         payment.decision
     );
+
+  /*
+   * CUSTOMER VIEW
+   *
+   * The selected payment ID is passed
+   * into CustomerView.
+   */
+  if (viewMode === "customer") {
+    return (
+      <CustomerView
+        paymentId={selectedPaymentId}
+        onBack={async () => {
+          // Reload the exact payment state written by the
+          // customer payment flow before returning to merchant view.
+          await loadPayments();
+          setViewMode("merchant");
+          setSelectedPaymentId(null);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -603,6 +605,7 @@ function App() {
       <aside className="sidebar">
 
         <div className="brand">
+
           <div className="brand-mark">
             R
           </div>
@@ -610,6 +613,7 @@ function App() {
           <span>
             Razorpay
           </span>
+
         </div>
 
         <div className="sidebar-content">
@@ -634,27 +638,33 @@ function App() {
               }
               type="button"
             >
+
               <Icon name="grid" />
 
               <span>
                 Overview
               </span>
+
             </button>
 
             <a className="nav-item">
+
               <Icon name="card" />
 
               <span>
                 Payments
               </span>
+
             </a>
 
             <a className="nav-item">
+
               <Icon name="clock" />
 
               <span>
                 Recovery activity
               </span>
+
             </a>
 
           </nav>
@@ -679,19 +689,23 @@ function App() {
               }
               type="button"
             >
+
               <Icon name="sparkle" />
 
               <span>
                 Agent actions
               </span>
+
             </button>
 
             <a className="nav-item">
+
               <Icon name="settings" />
 
               <span>
                 Settings
               </span>
+
             </a>
 
           </nav>
@@ -761,6 +775,19 @@ function App() {
 
           <div className="topbar-right">
 
+            {/* CUSTOMER VIEW BUTTON */}
+
+            <button
+  className="customer-view-button"
+  onClick={() => {
+    setSelectedPaymentId(null);
+    setViewMode("customer");
+  }}
+  type="button"
+>
+  Customer view
+</button>
+
             <div className="environment">
 
               <span className="status-dot" />
@@ -804,7 +831,9 @@ function App() {
 
                 <button
                   className="primary-button"
-                  onClick={runAgent}
+                  onClick={
+                    runAgent
+                  }
                   disabled={
                     agentRunning ||
                     resettingDemo
@@ -980,7 +1009,38 @@ function App() {
 
               </div>
 
-              <button className="text-button">
+              {/* VIEW PAYMENT */}
+
+              <button
+                className="text-button"
+                onClick={() => {
+
+                  const paymentToView =
+                    payments.find(
+                      (payment) =>
+                        payment.status ===
+                        "At Risk"
+                    ) ??
+                    payments[0];
+
+                  if (!paymentToView) {
+                    return;
+                  }
+
+                  /*
+                   * Store the exact payment ID
+                   * before switching to customer view.
+                   */
+                  setSelectedPaymentId(
+                    paymentToView.id
+                  );
+
+                  setViewMode(
+                    "customer"
+                  );
+                }}
+                type="button"
+              >
 
                 View payment
 
