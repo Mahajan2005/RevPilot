@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import "./CustomerView.css";
 
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
+
 type CustomerViewProps = {
   paymentId: string | null;
   onBack: () => void;
@@ -254,50 +260,123 @@ function CustomerView({ paymentId, onBack }: CustomerViewProps) {
 
     setAttemptingPayment(true);
     setErrorMessage("");
-    setResult(null);
     setStage("processing");
 
     try {
-      const response = await fetch(`${API_URL}/customer-pay`, {
+      // Load Razorpay Checkout if it is not already available.
+      if (!window.Razorpay) {
+        await new Promise<void>((resolve, reject) => {
+          const existingScript = document.querySelector(
+            'script[src="https://checkout.razorpay.com/v1/checkout.js"]'
+          );
+
+          if (existingScript) {
+            existingScript.addEventListener("load", () => resolve(), {
+              once: true,
+            });
+            existingScript.addEventListener("error", () => {
+              reject(new Error("Razorpay Checkout failed to load."));
+            }, { once: true });
+            return;
+          }
+
+          const script = document.createElement("script");
+          script.src = "https://checkout.razorpay.com/v1/checkout.js";
+          script.async = true;
+          script.onload = () => resolve();
+          script.onerror = () =>
+            reject(new Error("Razorpay Checkout failed to load."));
+          document.body.appendChild(script);
+        });
+      }
+
+      if (!window.Razorpay) {
+        throw new Error("Razorpay Checkout is unavailable.");
+      }
+
+      // Create the Razorpay order on the backend.
+      const response = await fetch(`${API_URL}/create-order`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          payment_id: selectedPaymentSet.backendId,
+          amount: selectedPaymentSet.amount,
         }),
       });
 
-      const data: PaymentResult = await response.json();
+      const data = await response.json();
 
-      if (!response.ok || !data.payment) {
-        throw new Error(data.message || "Unable to process demo payment.");
+      if (!response.ok || !data.success || !data.order) {
+        throw new Error(
+          data.message || "Unable to create Razorpay order."
+        );
       }
 
-      setResult(data);
+      const options = {
+        key: data.key_id,
+        amount: data.order.amount,
+        currency: data.order.currency,
+        name: "Acme Store",
+        description: `Payment ${selectedPaymentSet.id}`,
+        order_id: data.order.id,
 
-      // Let the customer see the payment failure before the agent response.
-      setTimeout(() => {
-        setStage("failed");
+        prefill: {
+          name: selectedPaymentSet.customer,
+          ...(method === "upi" && selectedPaymentSet.upi
+            ? { email: `${selectedPaymentSet.id}@demo.test` }
+            : {}),
+        },
 
-        // Then show the agent taking action.
-        setTimeout(() => {
-          setStage("agent");
+        theme: {
+          color: "#2563eb",
+        },
 
-          setTimeout(() => {
-            setStage("result");
-          }, 1000);
-        }, 900);
-      }, 500);
-    } catch (error) {
-      console.error("Customer payment error:", error);
+        handler: (paymentResponse: {
+          razorpay_payment_id: string;
+          razorpay_order_id: string;
+          razorpay_signature: string;
+        }) => {
+          console.log("Razorpay test payment successful:", paymentResponse);
+
+          // For now, only confirm that Checkout completed.
+          // Backend payment verification + merchant activity update
+          // will be connected in the next step.
+          setStage("recovered");
+          setAttemptingPayment(false);
+        },
+
+        modal: {
+          ondismiss: () => {
+            setStage("payment");
+            setAttemptingPayment(false);
+          },
+        },
+      };
+
+      const razorpay = new window.Razorpay(options);
+
+      razorpay.on("payment.failed", (paymentError: any) => {
+        console.error("Razorpay payment failed:", paymentError);
+
+        setErrorMessage(
+          paymentError?.error?.description ||
+            "Razorpay payment failed."
+        );
+        setStage("payment");
+        setAttemptingPayment(false);
+      });
+
+      razorpay.open();
+    } catch (err) {
+      console.error("Razorpay checkout error:", err);
+
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Unable to process demo payment."
+        err instanceof Error
+          ? err.message
+          : "Unable to start Razorpay Checkout."
       );
       setStage("payment");
-    } finally {
       setAttemptingPayment(false);
     }
   };
@@ -369,6 +448,7 @@ function CustomerView({ paymentId, onBack }: CustomerViewProps) {
 
               <select
                 value={selectedSetId}
+                disabled={attemptingPayment}
                 onChange={(event) =>
                   handlePaymentSetChange(event.target.value)
                 }

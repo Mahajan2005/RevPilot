@@ -3,10 +3,21 @@ from flask_cors import CORS
 import json
 import os
 from copy import deepcopy
+import razorpay
+from dotenv import load_dotenv
 
 
 app = Flask(__name__)
 CORS(app)
+
+load_dotenv()
+
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
+
+razorpay_client = razorpay.Client(
+    auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
+)
 
 
 # =========================================================
@@ -24,14 +35,6 @@ MAX_RETRIES = 2
 
 # =========================================================
 # CUSTOMER-SIDE DEMO PAYMENT CATALOG
-#
-# IMPORTANT:
-# These are ONLY the scenarios available to the customer
-# dropdown.
-#
-# They are NOT automatically shown on the merchant side.
-# A payment enters payments.json only after the customer
-# actually clicks Pay.
 # =========================================================
 
 INITIAL_DEMO_PAYMENTS = [
@@ -197,7 +200,7 @@ def reset_demo_data():
     """
     Merchant activity starts EMPTY.
 
-    The customer scenarios remain available through
+    Customer scenarios remain available through
     INITIAL_DEMO_PAYMENTS and are not copied into
     payments.json.
     """
@@ -408,8 +411,8 @@ def process_payment_with_agent(payment):
         else:
             payment["retry_attempts"] = retry_attempts + 1
 
-            # For this demo, a successful retry means the
-            # payment is recovered immediately.
+            # Demo behavior:
+            # successful retry = immediately recovered
             payment["status"] = "success"
             payment["recovered_by_agent"] = True
             payment["action"] = decision["action"]
@@ -465,7 +468,7 @@ def health():
 @app.route("/payments", methods=["GET"])
 def get_payments():
     """
-    Returns ONLY payments that have actually been initiated
+    Returns only payments that have actually been initiated
     from the customer side.
     """
 
@@ -473,7 +476,330 @@ def get_payments():
 
 
 # =========================================================
-# CUSTOMER PAYMENT
+# CREATE REAL RAZORPAY ORDER
+# =========================================================
+
+@app.route("/create-order", methods=["POST"])
+def create_order():
+    payload = request.get_json(silent=True) or {}
+
+    amount = payload.get("amount")
+
+    if not amount:
+        return jsonify({
+            "success": False,
+            "message": "amount is required."
+        }), 400
+
+    try:
+        amount_paise = int(float(amount) * 100)
+
+        order = razorpay_client.order.create({
+            "amount": amount_paise,
+            "currency": "INR",
+            "receipt": f"demo_receipt_{os.urandom(4).hex()}",
+        })
+
+        return jsonify({
+            "success": True,
+            "order": order,
+            "key_id": RAZORPAY_KEY_ID
+        })
+
+    except Exception as error:
+        print("Razorpay order creation error:", error)
+
+        return jsonify({
+            "success": False,
+            "message": "Unable to create Razorpay order.",
+            "error": str(error)
+        }), 500
+
+
+# =========================================================
+# REAL RAZORPAY PAYMENT RESULT
+# =========================================================
+
+@app.route("/razorpay-payment-result", methods=["POST"])
+def razorpay_payment_result():
+    """
+    Receives the actual result from Razorpay Checkout.
+
+    SUCCESS:
+        Verifies Razorpay signature and records the payment.
+
+    FAILURE:
+        Records the failed payment and sends it through
+        the existing recovery agent.
+    """
+
+    payload = request.get_json(silent=True) or {}
+
+    payment_id = payload.get("payment_id")
+    status = payload.get("status")
+
+    razorpay_payment_id = payload.get("razorpay_payment_id")
+    razorpay_order_id = payload.get("razorpay_order_id")
+    razorpay_signature = payload.get("razorpay_signature")
+
+    failure_reason = payload.get("failure_reason")
+    failure_code = payload.get("failure_code")
+    failure_description = payload.get("failure_description")
+
+    if not payment_id:
+        return jsonify({
+            "success": False,
+            "message": "payment_id is required."
+        }), 400
+
+    if status not in {"success", "failed"}:
+        return jsonify({
+            "success": False,
+            "message": "status must be success or failed."
+        }), 400
+
+    # -----------------------------------------------------
+    # FIND CUSTOMER SCENARIO
+    # -----------------------------------------------------
+
+    scenario = next(
+        (
+            item
+            for item in INITIAL_DEMO_PAYMENTS
+            if item.get("payment_id") == payment_id
+        ),
+        None,
+    )
+
+    if scenario is None:
+        return jsonify({
+            "success": False,
+            "message": (
+                f"Payment scenario {payment_id} was not found."
+            )
+        }), 404
+
+    # -----------------------------------------------------
+    # CREATE FRESH PAYMENT RECORD
+    # -----------------------------------------------------
+
+    payment = deepcopy(scenario)
+
+    payment["razorpay_payment_id"] = razorpay_payment_id
+    payment["razorpay_order_id"] = razorpay_order_id
+    payment["source"] = "razorpay"
+
+    # =====================================================
+    # SUCCESS
+    # =====================================================
+
+    if status == "success":
+
+        if not razorpay_payment_id or not razorpay_order_id:
+            return jsonify({
+                "success": False,
+                "message": (
+                    "Missing Razorpay payment information."
+                )
+            }), 400
+
+        if not razorpay_signature:
+            return jsonify({
+                "success": False,
+                "message": "Missing Razorpay signature."
+            }), 400
+
+        # -------------------------------------------------
+        # VERIFY RAZORPAY SIGNATURE
+        # -------------------------------------------------
+
+        try:
+            razorpay_client.utility.verify_payment_signature({
+                "razorpay_order_id": razorpay_order_id,
+                "razorpay_payment_id": razorpay_payment_id,
+                "razorpay_signature": razorpay_signature,
+            })
+
+        except Exception as error:
+            print(
+                "Razorpay signature verification failed:",
+                error
+            )
+
+            return jsonify({
+                "success": False,
+                "message": (
+                    "Razorpay payment verification failed."
+                ),
+                "error": str(error),
+            }), 400
+
+        # -------------------------------------------------
+        # RECORD SUCCESSFUL PAYMENT
+        # -------------------------------------------------
+
+        payment["status"] = "success"
+        payment["recovered_by_agent"] = False
+
+        payments = load_payments()
+
+        existing_index = next(
+            (
+                index
+                for index, item in enumerate(payments)
+                if item.get("payment_id") == payment_id
+            ),
+            None,
+        )
+
+        if existing_index is not None:
+            payments[existing_index] = payment
+        else:
+            payments.append(payment)
+
+        save_payments(payments)
+
+        return jsonify({
+            "success": True,
+            "payment": payment,
+            "decision": "PAYMENT_SUCCESS",
+            "action": "Payment completed successfully",
+            "reason": (
+                "Razorpay payment was completed and verified."
+            ),
+            "recovered": False,
+            "message": (
+                "Razorpay payment recorded successfully."
+            ),
+        })
+
+    # =====================================================
+    # FAILURE
+    # =====================================================
+
+    raw_reason = (
+        failure_reason
+        or failure_code
+        or failure_description
+        or "unrecognized_processor_error"
+    ).lower()
+
+    # -----------------------------------------------------
+    # NORMALIZE RAZORPAY FAILURE
+    # -----------------------------------------------------
+
+    if "timeout" in raw_reason:
+        normalized_reason = (
+            "upi_timeout"
+            if scenario.get("method") == "upi"
+            else "gateway_timeout"
+        )
+
+    elif "network" in raw_reason:
+        normalized_reason = "network_error"
+
+    elif "insufficient" in raw_reason:
+        normalized_reason = "insufficient_funds"
+
+    elif "expired" in raw_reason:
+        normalized_reason = "expired_card"
+
+    elif "authentication" in raw_reason:
+        normalized_reason = "authentication_failed"
+
+    elif "duplicate" in raw_reason:
+        normalized_reason = "duplicate_payment_risk"
+
+    else:
+        normalized_reason = (
+            "unrecognized_processor_error"
+        )
+
+    # -----------------------------------------------------
+    # STORE FAILURE
+    # -----------------------------------------------------
+
+    payment["status"] = "failed"
+    payment["failure_reason"] = normalized_reason
+    payment["razorpay_failure_code"] = failure_code
+    payment["razorpay_failure_description"] = (
+        failure_description
+    )
+    payment["recovered_by_agent"] = False
+    payment["retry_attempts"] = 0
+
+    # -----------------------------------------------------
+    # ADD TO MERCHANT ACTIVITY
+    # -----------------------------------------------------
+
+    payments = load_payments()
+
+    existing_index = next(
+        (
+            index
+            for index, item in enumerate(payments)
+            if item.get("payment_id") == payment_id
+        ),
+        None,
+    )
+
+    if existing_index is not None:
+        payments[existing_index] = payment
+    else:
+        payments.append(payment)
+
+    # -----------------------------------------------------
+    # RUN RECOVERY AGENT
+    # -----------------------------------------------------
+
+    agent_result = process_payment_with_agent(payment)
+
+    # -----------------------------------------------------
+    # SAVE RECOVERY LOG
+    # -----------------------------------------------------
+
+    recovery_log = load_recovery_log()
+
+    recovery_log.append({
+        "payment_id": payment["payment_id"],
+        "customer_id": payment.get("customer_id"),
+        "decision": agent_result["decision"],
+        "action": agent_result["action"],
+        "result": agent_result["result"],
+        "retry_attempt": agent_result["retry_attempt"],
+        "reason": agent_result["reason"],
+        "source": "razorpay",
+    })
+
+    # -----------------------------------------------------
+    # SAVE EVERYTHING
+    # -----------------------------------------------------
+
+    save_payments(payments)
+    save_recovery_log(recovery_log)
+
+    # -----------------------------------------------------
+    # RETURN AGENT RESULT
+    # -----------------------------------------------------
+
+    return jsonify({
+        "success": True,
+        "payment": payment,
+        "decision": agent_result["decision"],
+        "action": agent_result["action"],
+        "reason": agent_result["reason"],
+        "recovered": (
+            agent_result["result"] == "Recovered"
+        ),
+        "message": (
+            "Razorpay payment failure was handled "
+            "by the recovery agent."
+        ),
+    })
+
+
+# =========================================================
+# CUSTOMER PAYMENT — SIMULATED DEMO FLOW
 # =========================================================
 
 @app.route("/customer-pay", methods=["POST"])
@@ -481,13 +807,15 @@ def customer_pay():
     """
     Simulate one customer payment attempt.
 
+    This route is kept for the original demo scenarios.
+
     The customer sends only the payment ID.
 
     The backend:
-    1. Finds the scenario in INITIAL_DEMO_PAYMENTS.
-    2. Creates a fresh payment record.
-    3. Adds that payment to merchant activity.
-    4. Lets the recovery agent handle the failure.
+    1. Finds the scenario.
+    2. Creates a fresh payment.
+    3. Adds it to merchant activity.
+    4. Runs the recovery agent.
     5. Saves the result.
     """
 
@@ -528,24 +856,18 @@ def customer_pay():
 
     payment = deepcopy(scenario)
 
-    # Every demo payment begins as a failed payment so that
-    # the recovery agent has something to handle.
-
     payment["status"] = "failed"
     payment["recovered_by_agent"] = False
     payment["retry_attempts"] = 0
-
-    # Remove any fields that could have existed from an
-    # earlier agent run.
 
     payment.pop("decision", None)
     payment.pop("agent_decision", None)
     payment.pop("agent_reason", None)
     payment.pop("action", None)
 
-    # pay_001 is normally a success in the scenario catalog.
-    # We intentionally introduce a temporary failure so the
-    # recovery agent can demonstrate its behavior.
+    # pay_001 normally represents a success scenario.
+    # For this simulated flow, force a temporary failure
+    # so that the recovery agent can demonstrate behavior.
 
     if not payment.get("failure_reason"):
         payment["failure_reason"] = "bank_server_error"
@@ -571,13 +893,13 @@ def customer_pay():
         payments.append(payment)
 
     # -----------------------------------------------------
-    # RECOVERY AGENT HANDLES PAYMENT
+    # RECOVERY AGENT
     # -----------------------------------------------------
 
     agent_result = process_payment_with_agent(payment)
 
     # -----------------------------------------------------
-    # SAVE RECOVERY LOG
+    # RECOVERY LOG
     # -----------------------------------------------------
 
     recovery_log = load_recovery_log()
@@ -594,14 +916,14 @@ def customer_pay():
     })
 
     # -----------------------------------------------------
-    # SAVE DATA
+    # SAVE
     # -----------------------------------------------------
 
     save_payments(payments)
     save_recovery_log(recovery_log)
 
     # -----------------------------------------------------
-    # RETURN RESULT TO CUSTOMER
+    # RETURN
     # -----------------------------------------------------
 
     return jsonify({
@@ -610,10 +932,12 @@ def customer_pay():
         "decision": agent_result["decision"],
         "action": agent_result["action"],
         "reason": agent_result["reason"],
-        "recovered": agent_result["result"] == "Recovered",
+        "recovered": (
+            agent_result["result"] == "Recovered"
+        ),
         "message": (
-            "Customer payment failed and the recovery agent "
-            "handled the outcome."
+            "Customer payment failed and the recovery "
+            "agent handled the outcome."
         ),
     })
 
