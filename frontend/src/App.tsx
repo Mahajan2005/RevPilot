@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import "./App.css";
-import CustomerView from "./CustomerView";
+import RecoveryLab from "./RecoveryLab";
 
 type IconName =
   | "grid"
@@ -16,7 +16,10 @@ type IconName =
   | "refresh"
   | "bell";
 
-type PaymentStatus = "Recovered" | "At Risk";
+type PaymentStatus =
+  | "Recovered"
+  | "At Risk"
+  | "Intervention";
 
 type Payment = {
   id: string;
@@ -53,6 +56,10 @@ type BackendPayment = {
   agent_reason?: string;
 
   retry_attempts?: number;
+
+  event_type?: string;
+  customer_action?: string | null;
+  recovery_outcome?: string;
 };
 
 type AgentResponse = {
@@ -156,9 +163,7 @@ function formatAmount(amount: number | string | undefined) {
       : `₹${amount}`;
   }
 
-  return `₹${numericAmount.toLocaleString(
-    "en-IN"
-  )}`;
+  return `₹${numericAmount.toLocaleString("en-IN")}`;
 }
 
 function parseAmount(amount: string) {
@@ -264,26 +269,23 @@ function App() {
       "overview" | "actions"
     >("overview");
 
+  /*
+   * MAIN APPLICATION VIEW
+   *
+   * merchant:
+   * Existing merchant dashboard.
+   *
+   * recovery-lab:
+   * New simulation environment containing
+   * Checkout, Subscription and Promise to Pay.
+   */
   const [viewMode, setViewMode] =
     useState<
-      "merchant" | "customer"
+      "merchant" | "recovery-lab"
     >("merchant");
-
-  /*
-   * NEW:
-   *
-   * Stores the exact payment selected
-   * from the merchant dashboard.
-   *
-   * CustomerView will use this ID to
-   * load the same payment from the backend.
-   */
-  const [selectedPaymentId, setSelectedPaymentId] =
-    useState<string | null>(null);
 
   const [payments, setPayments] =
     useState<Payment[]>([]);
-    
 
   /*
    * Load payment data from Flask.
@@ -326,7 +328,11 @@ function App() {
               payment.status ===
                 "failed" ||
               payment.status ===
-                "pending"
+                "pending" ||
+              payment.status ===
+                "checkout_abandoned" ||
+              payment.event_type ===
+                "checkout_abandonment"
           )
           .map((payment) => {
             if (
@@ -336,6 +342,18 @@ function App() {
               return convertBackendPayment(
                 payment,
                 "Recovered"
+              );
+            }
+
+            if (
+              payment.status ===
+                "checkout_abandoned" ||
+              payment.event_type ===
+                "checkout_abandonment"
+            ) {
+              return convertBackendPayment(
+                payment,
+                "Intervention"
               );
             }
 
@@ -493,12 +511,6 @@ function App() {
 
       await loadPayments();
 
-      /*
-       * Reset the selected customer payment
-       * too, so the next demo starts clean.
-       */
-      setSelectedPaymentId(null);
-
       setAgentMessage(
         data.message ||
           "Demo payments reset to the initial scenario."
@@ -577,21 +589,28 @@ function App() {
     );
 
   /*
-   * CUSTOMER VIEW
+   * =====================================================
+   * RECOVERY LAB
+   * =====================================================
    *
-   * The selected payment ID is passed
-   * into CustomerView.
+   * This completely replaces the old customer view.
+   *
+   * The merchant dashboard remains untouched.
+   *
+   * RecoveryLab contains:
+   *
+   * 1. Checkout simulator
+   * 2. Subscription simulator
+   * 3. Promise to Pay
    */
-  if (viewMode === "customer") {
+  if (
+    viewMode ===
+    "recovery-lab"
+  ) {
     return (
-      <CustomerView
-        paymentId={selectedPaymentId}
-        onBack={async () => {
-          // Reload the exact payment state written by the
-          // customer payment flow before returning to merchant view.
-          await loadPayments();
+      <RecoveryLab
+        onBack={() => {
           setViewMode("merchant");
-          setSelectedPaymentId(null);
         }}
       />
     );
@@ -775,18 +794,19 @@ function App() {
 
           <div className="topbar-right">
 
-            {/* CUSTOMER VIEW BUTTON */}
+            {/* RECOVERY LAB */}
 
             <button
-  className="customer-view-button"
-  onClick={() => {
-    setSelectedPaymentId(null);
-    setViewMode("customer");
-  }}
-  type="button"
->
-  Customer view
-</button>
+              className="customer-view-button"
+              onClick={() => {
+                setViewMode(
+                  "recovery-lab"
+                );
+              }}
+              type="button"
+            >
+              Recovery Lab
+            </button>
 
             <div className="environment">
 
@@ -881,6 +901,7 @@ function App() {
                 </button>
 
                 {agentRunning && (
+
                   <div className="agent-running">
 
                     <span className="status-dot" />
@@ -889,10 +910,12 @@ function App() {
                     payments...
 
                   </div>
+
                 )}
 
                 {agentComplete &&
                   !agentRunning && (
+
                     <div className="agent-complete">
 
                       ✓{" "}
@@ -900,24 +923,29 @@ function App() {
                         "Recovery run completed"}
 
                     </div>
+
                   )}
 
                 {demoResetComplete &&
                   !resettingDemo && (
+
                     <div className="agent-complete">
 
                       ✓{" "}
                       {agentMessage}
 
                     </div>
+
                   )}
 
                 {agentError && (
+
                   <div className="agent-error">
 
                     {agentMessage}
 
                   </div>
+
                 )}
 
               </div>
@@ -1009,34 +1037,13 @@ function App() {
 
               </div>
 
-              {/* VIEW PAYMENT */}
+              {/* VIEW PAYMENT → RECOVERY LAB */}
 
               <button
                 className="text-button"
                 onClick={() => {
-
-                  const paymentToView =
-                    payments.find(
-                      (payment) =>
-                        payment.status ===
-                        "At Risk"
-                    ) ??
-                    payments[0];
-
-                  if (!paymentToView) {
-                    return;
-                  }
-
-                  /*
-                   * Store the exact payment ID
-                   * before switching to customer view.
-                   */
-                  setSelectedPaymentId(
-                    paymentToView.id
-                  );
-
                   setViewMode(
-                    "customer"
+                    "recovery-lab"
                   );
                 }}
                 type="button"

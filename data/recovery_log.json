@@ -1,1 +1,56 @@
-[]
+[
+  {
+    "payment_id": "lab_checkout_abandonment_1c6a74fa",
+    "customer_id": "lab_checkout_customer",
+    "decision": "RE_ENGAGE",
+    "action": "Prompt customer to resume checkout",
+    "result": "Recovery Intervention",
+    "retry_attempt": "No payment retry",
+    "reason": "Cart contains two high-value items, indicating strong intent",
+    "source": "recovery_lab_checkout",
+    "created_at": "2026-08-31T23:05:52.436765",
+    "customer_title": "Your sneakers are waiting",
+    "customer_message": "Hi there! It looks like you left your Everyday Sneakers in the cart. Feel free to pick up where you left off whenever you\u2019re ready.",
+    "suggested_action": "RETURN_TO_CHECKOUT",
+    "suggested_action_label": "Resume checkout",
+    "customer_action": "RETURN_TO_CHECKOUT",
+    "customer_action_at": "2026-08-31T23:06:00.595435",
+    "recovery_outcome": "customer_returned"
+  },
+  {
+    "payment_id": "lab_checkout_abandonment_b372b192",
+    "customer_id": "lab_checkout_customer",
+    "decision": "RE_ENGAGE",
+    "action": "Prompt to resume checkout",
+    "result": "Recovery Intervention",
+    "retry_attempt": "No payment retry",
+    "reason": "Multiple high-value items in cart show purchase intent",
+    "source": "recovery_lab_checkout",
+    "created_at": "2026-08-31T23:06:34.716739",
+    "customer_title": "Your headphones are waiting!",
+    "customer_message": "Hey there! The wireless headphones you added are still in your cart. If you\u2019d like to finish your order, just click below.",
+    "suggested_action": "RETURN_TO_CHECKOUT",
+    "suggested_action_label": "Resume Checkout",
+    "customer_action": "RETURN_TO_CHECKOUT",
+    "customer_action_at": "2026-08-31T23:06:36.310754",
+    "recovery_outcome": "customer_returned"
+  },
+  {
+    "payment_id": "lab_checkout_abandonment_94ca9808",
+    "customer_id": "lab_checkout_customer",
+    "decision": "RE_ENGAGE",
+    "action": "Prompt customer to resume checkout",
+    "result": "Recovery Intervention",
+    "retry_attempt": "No payment retry",
+    "reason": "Cart contains multiple items with total value, indicating purchase intent",
+    "source": "recovery_lab_checkout",
+    "created_at": "2026-08-31T23:07:19.682534",
+    "customer_title": "Your sneakers are waiting",
+    "customer_message": "Hey there! The Everyday Sneakers you added are still in your cart. Ready to complete your order?",
+    "suggested_action": "RETURN_TO_CHECKOUT",
+    "suggested_action_label": "Continue to checkout",
+    "customer_action": "RETURN_TO_CHECKOUT",
+    "customer_action_at": "2026-08-31T23:07:21.860873",
+    "recovery_outcome": "customer_returned"
+  }
+]

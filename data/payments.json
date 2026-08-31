@@ -1,1 +1,101 @@
-[]
+[
+  {
+    "payment_id": "lab_checkout_abandonment_1c6a74fa",
+    "customer_id": "lab_checkout_customer",
+    "amount": 9998.0,
+    "status": "checkout_abandoned",
+    "bank": "DEMO",
+    "method": "checkout",
+    "failure_reason": "checkout_abandoned",
+    "retry_attempts": 0,
+    "recovered_by_agent": false,
+    "source": "recovery_lab_checkout",
+    "created_at": "2026-08-31T23:05:50.777493",
+    "cart": [
+      {
+        "id": 2,
+        "name": "Everyday Sneakers",
+        "quantity": 2,
+        "price": 4999
+      }
+    ],
+    "event_type": "checkout_abandonment",
+    "decision": "RE_ENGAGE",
+    "agent_decision": "RE_ENGAGE",
+    "action": "Prompt customer to resume checkout",
+    "agent_reason": "Cart contains two high-value items, indicating strong intent",
+    "customer_title": "Your sneakers are waiting",
+    "customer_message": "Hi there! It looks like you left your Everyday Sneakers in the cart. Feel free to pick up where you left off whenever you\u2019re ready.",
+    "suggested_action": "RETURN_TO_CHECKOUT",
+    "suggested_action_label": "Resume checkout",
+    "customer_action": "RETURN_TO_CHECKOUT",
+    "customer_action_at": "2026-08-31T23:06:00.595435",
+    "recovery_outcome": "customer_returned"
+  },
+  {
+    "payment_id": "lab_checkout_abandonment_b372b192",
+    "customer_id": "lab_checkout_customer",
+    "amount": 8997.0,
+    "status": "checkout_abandoned",
+    "bank": "DEMO",
+    "method": "checkout",
+    "failure_reason": "checkout_abandoned",
+    "retry_attempts": 0,
+    "recovered_by_agent": false,
+    "source": "recovery_lab_checkout",
+    "created_at": "2026-08-31T23:06:33.196227",
+    "cart": [
+      {
+        "id": 1,
+        "name": "Wireless Headphones",
+        "quantity": 3,
+        "price": 2999
+      }
+    ],
+    "event_type": "checkout_abandonment",
+    "decision": "RE_ENGAGE",
+    "agent_decision": "RE_ENGAGE",
+    "action": "Prompt to resume checkout",
+    "agent_reason": "Multiple high-value items in cart show purchase intent",
+    "customer_title": "Your headphones are waiting!",
+    "customer_message": "Hey there! The wireless headphones you added are still in your cart. If you\u2019d like to finish your order, just click below.",
+    "suggested_action": "RETURN_TO_CHECKOUT",
+    "suggested_action_label": "Resume Checkout",
+    "customer_action": "RETURN_TO_CHECKOUT",
+    "customer_action_at": "2026-08-31T23:06:36.310754",
+    "recovery_outcome": "customer_returned"
+  },
+  {
+    "payment_id": "lab_checkout_abandonment_94ca9808",
+    "customer_id": "lab_checkout_customer",
+    "amount": 14997.0,
+    "status": "checkout_abandoned",
+    "bank": "DEMO",
+    "method": "checkout",
+    "failure_reason": "checkout_abandoned",
+    "retry_attempts": 0,
+    "recovered_by_agent": false,
+    "source": "recovery_lab_checkout",
+    "created_at": "2026-08-31T23:07:18.212306",
+    "cart": [
+      {
+        "id": 2,
+        "name": "Everyday Sneakers",
+        "quantity": 3,
+        "price": 4999
+      }
+    ],
+    "event_type": "checkout_abandonment",
+    "decision": "RE_ENGAGE",
+    "agent_decision": "RE_ENGAGE",
+    "action": "Prompt customer to resume checkout",
+    "agent_reason": "Cart contains multiple items with total value, indicating purchase intent",
+    "customer_title": "Your sneakers are waiting",
+    "customer_message": "Hey there! The Everyday Sneakers you added are still in your cart. Ready to complete your order?",
+    "suggested_action": "RETURN_TO_CHECKOUT",
+    "suggested_action_label": "Continue to checkout",
+    "customer_action": "RETURN_TO_CHECKOUT",
+    "customer_action_at": "2026-08-31T23:07:21.860873",
+    "recovery_outcome": "customer_returned"
+  }
+]
