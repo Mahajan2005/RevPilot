@@ -19,7 +19,9 @@ type IconName =
 type PaymentStatus =
   | "Recovered"
   | "At Risk"
-  | "Intervention";
+  | "Intervention"
+  | "Paid"
+  | "Pending";
 
 type Payment = {
   id: string;
@@ -219,15 +221,27 @@ function convertBackendPayment(
     reason:
       payment.failure_reason ??
       payment.reason ??
-      (status === "Recovered"
-        ? "Recovered payment"
-        : "Unknown"),
+      (status === "Paid"
+        ? "Payment completed"
+        : status === "Pending"
+          ? "Payment in progress"
+          : status === "Recovered"
+            ? "Recovered payment"
+            : status === "Intervention"
+              ? "Customer intervention"
+              : "Payment requires attention"),
 
     action:
       payment.action ??
-      (status === "Recovered"
-        ? "Payment retried"
-        : "Customer notified"),
+      (status === "Paid"
+        ? "Payment completed"
+        : status === "Pending"
+          ? "Awaiting payment result"
+          : status === "Recovered"
+            ? "Payment retried"
+            : status === "Intervention"
+              ? "Customer prompted"
+              : "Customer action required"),
 
     status,
 
@@ -321,35 +335,33 @@ function App() {
 
       const recoveryPayments: Payment[] =
         data
-          .filter(
-            (payment) =>
-              payment.recovered_by_agent ===
-                true ||
-              payment.status ===
-                "failed" ||
-              payment.status ===
-                "pending" ||
-              payment.status ===
-                "checkout_abandoned" ||
-              payment.event_type ===
-                "checkout_abandonment"
-          )
+          .filter((payment) => Boolean(getPaymentId(payment)))
           .map((payment) => {
-            if (
-              payment.recovered_by_agent ===
-              true
-            ) {
+            // A verified Razorpay success is a normal paid payment,
+            // not an agent recovery.
+            if (payment.status === "success") {
+              return convertBackendPayment(
+                payment,
+                "Paid"
+              );
+            }
+
+            // Agent-recovered demo payments remain recovered.
+            if (payment.recovered_by_agent === true) {
               return convertBackendPayment(
                 payment,
                 "Recovered"
               );
             }
 
+            // Checkout/subscription/promise interventions are visible
+            // in the activity feed without being counted as failed
+            // payment revenue at risk.
             if (
-              payment.status ===
-                "checkout_abandoned" ||
-              payment.event_type ===
-                "checkout_abandonment"
+              payment.status === "checkout_abandoned" ||
+              payment.status === "subscription_recovery" ||
+              payment.status === "promise_missed" ||
+              payment.event_type === "checkout_abandonment"
             ) {
               return convertBackendPayment(
                 payment,
@@ -357,9 +369,25 @@ function App() {
               );
             }
 
+            // Real Razorpay failures and recovery-review states.
+            if (
+              payment.status === "failed" ||
+              payment.status === "payment_recovery_intervention" ||
+              payment.status === "payment_pending_review" ||
+              payment.status === "payment_recovery_error" ||
+              payment.status === "order_creation_failed"
+            ) {
+              return convertBackendPayment(
+                payment,
+                "At Risk"
+              );
+            }
+
+            // An order that has been created but has not yet reached
+            // success/failure is still useful merchant activity.
             return convertBackendPayment(
               payment,
-              "At Risk"
+              "Pending"
             );
           });
 
@@ -611,6 +639,7 @@ function App() {
       <RecoveryLab
         onBack={() => {
           setViewMode("merchant");
+          void loadPayments();
         }}
       />
     );
@@ -1281,10 +1310,10 @@ function App() {
 
                     <strong>
 
-                      {payments.length
+                      {recoveredCount + atRiskCount
                         ? `${Math.round(
                             (recoveredCount /
-                              payments.length) *
+                              (recoveredCount + atRiskCount)) *
                               100
                           )}%`
                         : "0%"}
@@ -1644,22 +1673,23 @@ function StatusBadge({
 }: {
   status: PaymentStatus;
 }) {
-  const recovered =
-    status === "Recovered";
+  const className =
+    status === "Recovered"
+      ? "recovered"
+      : status === "Paid"
+        ? "paid"
+        : status === "Intervention"
+          ? "intervention"
+          : status === "Pending"
+            ? "pending"
+            : "risk";
 
   return (
     <span
-      className={`status-badge ${
-        recovered
-          ? "recovered"
-          : "risk"
-      }`}
+      className={`status-badge ${className}`}
     >
-
       <span />
-
       {status}
-
     </span>
   );
 }

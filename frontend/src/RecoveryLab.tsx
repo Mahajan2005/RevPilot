@@ -1,19 +1,13 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import "./RecoveryLab.css";
 
 type RecoveryLabProps = {
   onBack: () => void;
 };
 
-type Mode =
-  | "checkout"
-  | "subscription"
-  | "promise";
+type Mode = "checkout" | "subscription" | "promise";
 
-type Stage =
-  | "shop"
-  | "cart"
-  | "checkout";
+type Stage = "shop" | "cart" | "checkout";
 
 type Product = {
   id: number;
@@ -29,22 +23,101 @@ type CartItem = Product & {
   quantity: number;
 };
 
+type CustomerIntervention = {
+  title?: string;
+  message?: string;
+  suggested_action?: string;
+  suggested_action_label?: string;
+};
+
 type SimulationResult = {
-    payment_id?: string;
+  payment_id?: string;
   decision?: string;
   action?: string;
   reason?: string;
   result?: string;
   retry_attempt?: string | number;
-  customer_intervention?: {
-    title?: string;
-    message?: string;
-    suggested_action?: string;
-    suggested_action_label?: string;
+  customer_intervention?: CustomerIntervention;
+};
+
+type RazorpaySuccessResponse = {
+  razorpay_payment_id: string;
+  razorpay_order_id: string;
+  razorpay_signature: string;
+};
+
+type RazorpayFailureResponse = {
+  error?: {
+    code?: string;
+    description?: string;
+    reason?: string;
+    source?: string;
+    step?: string;
+    metadata?: {
+      order_id?: string;
+      payment_id?: string;
+    };
   };
 };
 
+type RazorpayOptions = {
+  key: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  order_id: string;
+
+  handler: (
+    response: RazorpaySuccessResponse
+  ) => void;
+
+  retry?: {
+    enabled: boolean;
+  };
+
+  modal?: {
+    ondismiss?: () => void;
+  };
+
+  prefill?: {
+    name?: string;
+    email?: string;
+    contact?: string;
+  };
+
+  notes?: Record<string, string>;
+
+  theme?: {
+    color?: string;
+  };
+};
+
+type RazorpayInstance = {
+  open: () => void;
+
+  on: (
+    event: "payment.failed",
+    handler: (
+      response: RazorpayFailureResponse
+    ) => void
+  ) => void;
+};
+
+type RazorpayConstructor = new (
+  options: RazorpayOptions
+) => RazorpayInstance;
+
+declare global {
+  interface Window {
+    Razorpay?: RazorpayConstructor;
+  }
+}
+
 const API_URL = "http://127.0.0.1:5000";
+
+const RAZORPAY_SCRIPT_URL =
+  "https://checkout.razorpay.com/v1/checkout.js";
 
 const PRODUCTS: Product[] = [
   {
@@ -104,10 +177,44 @@ function formatAmount(amount: number) {
   return `₹${amount.toLocaleString("en-IN")}`;
 }
 
+function loadRazorpayScript(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (window.Razorpay) {
+      resolve(true);
+      return;
+    }
+
+    const existingScript = document.querySelector(
+      `script[src="${RAZORPAY_SCRIPT_URL}"]`
+    );
+
+    if (existingScript) {
+      existingScript.addEventListener("load", () =>
+        resolve(true)
+      );
+
+      existingScript.addEventListener("error", () =>
+        resolve(false)
+      );
+
+      return;
+    }
+
+    const script = document.createElement("script");
+
+    script.src = RAZORPAY_SCRIPT_URL;
+    script.async = true;
+
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+
+    document.body.appendChild(script);
+  });
+}
+
 export default function RecoveryLab({
   onBack,
 }: RecoveryLabProps) {
-
   const [mode, setMode] =
     useState<Mode>("checkout");
 
@@ -124,9 +231,7 @@ export default function RecoveryLab({
     useState(false);
 
   const [customerIntervention, setCustomerIntervention] =
-    useState<SimulationResult["customer_intervention"] | null>(
-      null
-    );
+    useState<CustomerIntervention | null>(null);
 
   const [checkoutCustomerAction, setCheckoutCustomerAction] =
     useState<
@@ -157,27 +262,52 @@ export default function RecoveryLab({
   const [checkoutPaymentId, setCheckoutPaymentId] =
     useState<string | null>(null);
 
+  const [paymentLoading, setPaymentLoading] =
+    useState(false);
+
+  const [paymentSuccess, setPaymentSuccess] =
+    useState(false);
+
+  const [paymentFailure, setPaymentFailure] =
+    useState(false);
+
+  const [paymentFailureReason, setPaymentFailureReason] =
+    useState("");
+
+  /*
+   * IMPORTANT
+   *
+   * Razorpay can fire `payment.failed` and then
+   * `ondismiss`.
+   *
+   * This ref lets us distinguish:
+   *
+   * 1. Customer simply closed Razorpay
+   * 2. Payment actually failed
+   *
+   * Without this, ondismiss can turn off the
+   * loading state while the recovery agent is
+   * still processing the failure.
+   */
+  const razorpayFailureHandledRef =
+    useRef(false);
 
   // =====================================================
   // CART
   // =====================================================
 
   const addToCart = (product: Product) => {
-
     setCart((current) => {
-
       const existing = current.find(
         (item) => item.id === product.id
       );
 
       if (existing) {
-
         return current.map((item) =>
           item.id === product.id
             ? {
                 ...item,
-                quantity:
-                  item.quantity + 1,
+                quantity: item.quantity + 1,
               }
             : item
         );
@@ -193,53 +323,41 @@ export default function RecoveryLab({
     });
   };
 
-
   const updateQuantity = (
     productId: number,
     change: number
   ) => {
-
     setCart((current) =>
       current
         .map((item) =>
           item.id === productId
             ? {
                 ...item,
-                quantity:
-                  item.quantity + change,
+                quantity: item.quantity + change,
               }
             : item
         )
-        .filter(
-          (item) => item.quantity > 0
-        )
+        .filter((item) => item.quantity > 0)
     );
   };
 
-
   const toggleFavorite = (id: number) => {
-
     setFavorites((current) =>
       current.includes(id)
-        ? current.filter(
-            (item) => item !== id
-          )
+        ? current.filter((item) => item !== id)
         : [...current, id]
     );
   };
-
 
   const subtotal = useMemo(
     () =>
       cart.reduce(
         (sum, item) =>
-          sum +
-          item.price * item.quantity,
+          sum + item.price * item.quantity,
         0
       ),
     [cart]
   );
-
 
   const shipping =
     subtotal === 0
@@ -248,38 +366,29 @@ export default function RecoveryLab({
         ? 0
         : 199;
 
-
   const discount = couponApplied
     ? Math.round(subtotal * 0.1)
     : 0;
 
-
   const total =
-    subtotal +
-    shipping -
-    discount;
-
+    subtotal + shipping - discount;
 
   const cartCount = cart.reduce(
-    (sum, item) =>
-      sum + item.quantity,
+    (sum, item) => sum + item.quantity,
     0
   );
-
 
   // =====================================================
   // MODE SWITCH
   // =====================================================
 
   const switchMode = (nextMode: Mode) => {
-
     setMode(nextMode);
 
     if (nextMode === "checkout") {
       setStage("shop");
     }
   };
-
 
   // =====================================================
   // RECOVERY LAB SIMULATION
@@ -291,7 +400,6 @@ export default function RecoveryLab({
       | "subscription_failure"
       | "promise_missed"
   ): Promise<SimulationResult | null> => {
-
     if (agentRunning) {
       return null;
     }
@@ -299,21 +407,18 @@ export default function RecoveryLab({
     setAgentRunning(true);
 
     try {
-
       const response = await fetch(
         `${API_URL}/lab-simulate`,
         {
           method: "POST",
           headers: {
-            "Content-Type":
-              "application/json",
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
             event_type: eventType,
 
             amount:
-              eventType ===
-              "checkout_abandonment"
+              eventType === "checkout_abandonment"
                 ? total
                 : eventType ===
                     "subscription_failure"
@@ -335,7 +440,6 @@ export default function RecoveryLab({
       );
 
       if (!response.ok) {
-
         throw new Error(
           `Backend returned ${response.status}`
         );
@@ -344,9 +448,8 @@ export default function RecoveryLab({
       const data: SimulationResult =
         await response.json();
 
-
       // -------------------------------------------------
-      // CHECKOUT
+      // CHECKOUT ABANDONMENT
       // -------------------------------------------------
 
       if (
@@ -356,8 +459,6 @@ export default function RecoveryLab({
         const intervention =
           data.customer_intervention;
 
-        // Never invent customer-facing copy in the frontend.
-        // The intervention must come from the recovery agent.
         if (
           !intervention?.title ||
           !intervention?.message ||
@@ -374,20 +475,21 @@ export default function RecoveryLab({
         );
 
         setCheckoutCustomerAction(null);
+
         setCheckoutError("");
 
-        if (data.payment_id) {
+        const paymentId =
+          data.payment_id;
+
+        if (paymentId) {
           setCheckoutPaymentId(
-            data.payment_id
+            paymentId
           );
         }
       }
 
-
       return data;
-
     } catch (error) {
-
       console.error(
         "Recovery Lab error:",
         error
@@ -398,20 +500,19 @@ export default function RecoveryLab({
         "checkout_abandonment"
       ) {
         setCustomerIntervention(null);
+
         setCheckoutPaymentId(null);
+
         setCheckoutError(
           "The recovery agent could not generate a customer intervention."
         );
       }
 
       return null;
-
     } finally {
-
       setAgentRunning(false);
     }
   };
-
 
   // =====================================================
   // CHECKOUT CUSTOMER ACTION
@@ -423,13 +524,11 @@ export default function RecoveryLab({
       | "KEEP_CART_SAVED"
       | "ABANDON"
   ) => {
-
     if (!checkoutPaymentId) {
       return;
     }
 
     try {
-
       const response = await fetch(
         `${API_URL}/checkout-action`,
         {
@@ -454,31 +553,693 @@ export default function RecoveryLab({
         );
       }
 
-      setCheckoutCustomerAction(
-        action
-      );
+      setCheckoutCustomerAction(action);
 
-      if (action === "RETURN_TO_CHECKOUT") {
+      if (
+        action ===
+        "RETURN_TO_CHECKOUT"
+      ) {
         setStage("checkout");
       }
-
     } catch (error) {
-
       console.error(
         "Checkout action error:",
         error
       );
-
     }
   };
 
+  // =====================================================
+  // PAYMENT RECOVERY ACTION
+  // =====================================================
 
+  const handlePaymentRecoveryAction = async () => {
+  if (!customerIntervention) {
+    return;
+  }
+
+  const action =
+    customerIntervention.suggested_action || "";
+
+  // -------------------------------------------------
+  // RETRY PAYMENT
+  // -------------------------------------------------
+  if (action === "RETRY_PAYMENT") {
+    setPaymentFailure(false);
+    setPaymentFailureReason("");
+    setCheckoutError("");
+
+    await startRazorpayPayment();
+    return;
+  }
+
+  // -------------------------------------------------
+  // CHANGE PAYMENT METHOD
+  // -------------------------------------------------
+  //
+  // Razorpay Checkout itself allows the customer
+  // to select another available payment method.
+  //
+  // Opening a fresh Checkout session gives the
+  // customer a clean opportunity to do that.
+  //
+  if (action === "CHANGE_PAYMENT_METHOD") {
+    setPaymentFailure(false);
+    setPaymentFailureReason("");
+    setCheckoutError("");
+
+    await startRazorpayPayment();
+    return;
+  }
+
+  // -------------------------------------------------
+  // UPDATE PAYMENT METHOD
+  // -------------------------------------------------
+  //
+  // For the demo, reopening Razorpay gives the
+  // customer access to the available payment
+  // methods again.
+  //
+  if (action === "UPDATE_PAYMENT_METHOD") {
+    setPaymentFailure(false);
+    setPaymentFailureReason("");
+    setCheckoutError("");
+
+    await startRazorpayPayment();
+    return;
+  }
+
+  // -------------------------------------------------
+  // WAIT AND RETRY
+  // -------------------------------------------------
+  //
+  // Do NOT immediately retry.
+  // Give the customer a short pause before creating
+  // another payment attempt.
+  //
+  if (action === "WAIT_AND_RETRY") {
+    setPaymentLoading(true);
+
+    setCustomerIntervention({
+      ...customerIntervention,
+      title: "Let's try that again",
+      message:
+        "We'll give the payment a moment and try again.",
+      suggested_action: "RETRY_PAYMENT",
+      suggested_action_label: "Try payment again",
+    });
+
+    window.setTimeout(async () => {
+      setPaymentFailure(false);
+      setPaymentFailureReason("");
+      setCheckoutError("");
+
+      await startRazorpayPayment();
+    }, 3000);
+
+    return;
+  }
+
+  // -------------------------------------------------
+  // CHECK PAYMENT STATUS
+  // -------------------------------------------------
+  //
+  // IMPORTANT:
+  //
+  // Never create another payment when the agent
+  // specifically asks to check status.
+  //
+  // A payment status check needs a separate server
+  // verification flow. The current Razorpay
+  // payment.failed event already tells us that the
+  // particular attempt failed, so we don't create
+  // another charge here.
+  //
+  if (action === "CHECK_PAYMENT_STATUS") {
+    setPaymentLoading(false);
+
+    setCustomerIntervention({
+      ...customerIntervention,
+      title: "Checking your payment",
+      message:
+        "We're checking the latest payment status before asking you to try again.",
+      suggested_action: "RETRY_PAYMENT",
+      suggested_action_label: "Try payment again",
+    });
+
+    return;
+  }
+
+  // -------------------------------------------------
+  // MANUAL REVIEW
+  // -------------------------------------------------
+  //
+  // Do not automatically create another payment.
+  //
+  if (action === "MANUAL_REVIEW") {
+    setPaymentLoading(false);
+
+    setCustomerIntervention({
+      ...customerIntervention,
+      title:
+        customerIntervention.title ||
+        "Payment needs a quick check",
+      message:
+        customerIntervention.message ||
+        "We couldn't safely complete this payment automatically. Please try again later.",
+      suggested_action: undefined,
+      suggested_action_label: undefined,
+    });
+
+    return;
+  }
+};
+
+  // =====================================================
+  // RAZORPAY PAYMENT
+  // =====================================================
+
+  const startRazorpayPayment =
+    async () => {
+      if (paymentLoading) {
+        return;
+      }
+
+      if (total <= 0) {
+        setCheckoutError(
+          "Your order total must be greater than ₹0."
+        );
+
+        return;
+      }
+
+      /*
+       * We are starting a NEW Razorpay attempt.
+       * Therefore a previous failure has been handled.
+       */
+      razorpayFailureHandledRef.current =
+        false;
+
+      setPaymentLoading(true);
+
+      setCheckoutError("");
+
+      setPaymentSuccess(false);
+
+      try {
+        // -----------------------------------------------
+        // LOAD RAZORPAY CHECKOUT
+        // -----------------------------------------------
+
+        const razorpayLoaded =
+          await loadRazorpayScript();
+
+        if (
+          !razorpayLoaded ||
+          !window.Razorpay
+        ) {
+          throw new Error(
+            "Razorpay Checkout could not be loaded."
+          );
+        }
+
+        // -----------------------------------------------
+        // CREATE RAZORPAY ORDER
+        // -----------------------------------------------
+
+        const orderResponse =
+          await fetch(
+            `${API_URL}/create-order`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify({
+                amount: total,
+                payment_id: checkoutPaymentId,
+                customer_id: "lab_checkout_customer",
+                cart: cart.map((item) => ({
+                  id: item.id,
+                  name: item.name,
+                  quantity: item.quantity,
+                  price: item.price,
+                })),
+              }),
+            }
+          );
+
+        const orderData =
+          await orderResponse.json();
+
+        if (
+          !orderResponse.ok ||
+          !orderData.success ||
+          !orderData.order
+        ) {
+          throw new Error(
+            orderData.error ||
+              orderData.message ||
+              "Could not create Razorpay order."
+          );
+        }
+
+        // The backend creates the internal payment record when
+        // this is the first normal checkout attempt. Reuse that
+        // same ID for later Razorpay failures/retries.
+        const internalPaymentId =
+          orderData.payment_id ||
+          checkoutPaymentId;
+
+        if (!internalPaymentId) {
+          throw new Error(
+            "The payment session could not be created."
+          );
+        }
+
+        setCheckoutPaymentId(
+          internalPaymentId
+        );
+
+        // -----------------------------------------------
+        // OPEN RAZORPAY
+        // -----------------------------------------------
+
+        const options: RazorpayOptions =
+          {
+            key: orderData.key_id,
+
+            amount:
+              orderData.order.amount,
+
+            currency:
+              orderData.order.currency ||
+              "INR",
+
+            name: "Recovery Lab",
+
+            description:
+              "Demo checkout recovery payment",
+
+            order_id:
+              orderData.order.id,
+
+            /*
+             * THIS IS THE IMPORTANT FIX.
+             *
+             * Razorpay normally shows its own
+             * "Payment failed / Retry payment"
+             * screen.
+             *
+             * Disabling retry gives our application
+             * control after payment.failed.
+             */
+            retry: {
+              enabled: false,
+            },
+
+            prefill: {
+              name: "Demo Customer",
+              email:
+                "customer@demo.test",
+              contact: "9999999999",
+            },
+
+            notes: {
+              recovery_payment_id:
+                internalPaymentId,
+
+              simulation:
+                "checkout_recovery",
+            },
+
+            theme: {
+              color: "#111111",
+            },
+
+            // -------------------------------------------
+            // SUCCESS
+            // -------------------------------------------
+
+            handler: async (
+              razorpayResponse
+            ) => {
+              await handleRazorpaySuccess(
+                razorpayResponse,
+                internalPaymentId
+              );
+            },
+
+            // -------------------------------------------
+            // DISMISS
+            // -------------------------------------------
+
+            modal: {
+              ondismiss: () => {
+                /*
+                 * If payment.failed already happened,
+                 * the recovery agent is processing it.
+                 *
+                 * Do NOT interrupt that state.
+                 */
+                if (
+                  !razorpayFailureHandledRef.current
+                ) {
+                  setPaymentLoading(
+                    false
+                  );
+                }
+              },
+            },
+          };
+
+        const razorpay =
+          new window.Razorpay(
+            options
+          );
+
+        // -----------------------------------------------
+        // PAYMENT FAILED EVENT
+        // -----------------------------------------------
+
+        /*
+         * THIS IS THE OTHER CRITICAL FIX.
+         *
+         * Razorpay sends the failure here.
+         *
+         * We then:
+         *
+         * Razorpay
+         *    ↓
+         * payment.failed
+         *    ↓
+         * Flask
+         *    ↓
+         * Groq / LLM
+         *    ↓
+         * customer intervention
+         */
+        razorpay.on(
+          "payment.failed",
+          (paymentError) =>
+            handleRazorpayFailure(
+              paymentError,
+              internalPaymentId
+            )
+        );
+
+        razorpay.open();
+
+        /*
+         * Razorpay is now controlling the screen,
+         * so the React button itself doesn't need to
+         * remain in a loading state.
+         */
+        setPaymentLoading(false);
+      } catch (error) {
+        console.error(
+          "Razorpay payment error:",
+          error
+        );
+
+        setPaymentLoading(false);
+
+        setCheckoutError(
+          error instanceof Error
+            ? error.message
+            : "Unable to start payment."
+        );
+      }
+    };
+
+  // =====================================================
+  // RAZORPAY SUCCESS
+  // =====================================================
+
+  const handleRazorpaySuccess =
+    async (
+      razorpayResponse: RazorpaySuccessResponse,
+      internalPaymentId?: string
+    ) => {
+      setPaymentLoading(true);
+
+      setCheckoutError("");
+
+      try {
+        const response =
+          await fetch(
+            `${API_URL}/razorpay-payment-result`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify({
+                /*
+                 * IMPORTANT:
+                 *
+                 * This remains OUR internal
+                 * Recovery Lab payment ID.
+                 *
+                 * Do not replace this with the
+                 * Razorpay payment ID.
+                 */
+                payment_id:
+                  internalPaymentId ||
+                  checkoutPaymentId,
+
+                status: "success",
+
+                razorpay_payment_id:
+                  razorpayResponse.razorpay_payment_id,
+
+                razorpay_order_id:
+                  razorpayResponse.razorpay_order_id,
+
+                razorpay_signature:
+                  razorpayResponse.razorpay_signature,
+              }),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok ||
+          data.success === false
+        ) {
+          throw new Error(
+            data.error ||
+              "Payment verification failed."
+          );
+        }
+
+        // -----------------------------------------------
+        // IMPORTANT:
+        //
+        // Successful payment DOES NOT run the agent.
+        // -----------------------------------------------
+
+        setPaymentSuccess(true);
+
+        setPaymentFailure(false);
+
+        setCustomerIntervention(null);
+
+        setPaymentFailureReason("");
+
+        setCheckoutError("");
+      } catch (error) {
+        console.error(
+          "Payment verification error:",
+          error
+        );
+
+        setCheckoutError(
+          error instanceof Error
+            ? error.message
+            : "Payment was completed but could not be verified."
+        );
+      } finally {
+        setPaymentLoading(false);
+      }
+    };
+
+  // =====================================================
+  // RAZORPAY FAILURE
+  // =====================================================
+
+  const handleRazorpayFailure =
+    async (
+      paymentError: RazorpayFailureResponse,
+      internalPaymentId?: string
+    ) => {
+      /*
+       * Tell ondismiss that a REAL payment failure
+       * happened and that the recovery flow owns
+       * the next screen.
+       */
+      razorpayFailureHandledRef.current =
+        true;
+
+      setPaymentLoading(true);
+
+      setPaymentFailure(true);
+
+      setPaymentSuccess(false);
+
+      /*
+       * Clear the previous intervention so the new
+       * LLM response is shown only after it arrives.
+       */
+      setCustomerIntervention(null);
+
+      const failureReason =
+        paymentError.error?.reason ||
+        paymentError.error?.description ||
+        paymentError.error?.code ||
+        "Payment failed";
+
+      const failureCode =
+        paymentError.error?.code ||
+        "";
+
+      const failureDescription =
+        paymentError.error?.description ||
+        failureReason;
+
+      const razorpayPaymentId =
+        paymentError.error?.metadata
+          ?.payment_id || "";
+
+      const razorpayOrderId =
+        paymentError.error?.metadata
+          ?.order_id || "";
+
+      const failureSource =
+        paymentError.error?.source || "";
+
+      const failureStep =
+        paymentError.error?.step || "";
+
+      setPaymentFailureReason(
+        failureDescription
+      );
+
+      try {
+        // -----------------------------------------------
+        // SEND FAILURE TO BACKEND
+        // -----------------------------------------------
+
+        const response =
+          await fetch(
+            `${API_URL}/razorpay-payment-result`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify({
+                /*
+                 * Our internal Recovery Lab payment.
+                 */
+                payment_id:
+                  internalPaymentId ||
+                  checkoutPaymentId,
+
+                status: "failed",
+
+                /*
+                 * Actual Razorpay failure information.
+                 */
+                razorpay_payment_id:
+                  razorpayPaymentId,
+
+                razorpay_order_id:
+                  razorpayOrderId,
+
+                failure_reason:
+                  failureReason,
+
+                failure_code:
+                  failureCode,
+
+                failure_description:
+                  failureDescription,
+
+                razorpay_failure_source:
+                  failureSource,
+
+                 razorpay_failure_step:
+                   failureStep,
+              }),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.error ||
+              "The payment failure could not be processed."
+          );
+        }
+
+        // -----------------------------------------------
+        // CUSTOMER-FACING INTERVENTION
+        //
+        // THIS COMES FROM THE LLM.
+        // -----------------------------------------------
+
+        const intervention =
+          data.customer_intervention;
+
+        if (
+          !intervention?.title ||
+          !intervention?.message
+        ) {
+          throw new Error(
+            "The recovery agent did not return a customer intervention."
+          );
+        }
+
+        setCustomerIntervention(
+          intervention
+        );
+
+        setCheckoutCustomerAction(null);
+
+        setCheckoutError("");
+      } catch (error) {
+        console.error(
+          "Payment recovery error:",
+          error
+        );
+
+        setCustomerIntervention(null);
+
+        setCheckoutError(
+          error instanceof Error
+            ? error.message
+            : "We could not process the payment recovery."
+        );
+      } finally {
+        setPaymentLoading(false);
+      }
+    };
 
   // =====================================================
   // RESET CHECKOUT
   // =====================================================
 
   const resetCheckout = () => {
+    razorpayFailureHandledRef.current =
+      false;
 
     setStage("shop");
 
@@ -495,15 +1256,21 @@ export default function RecoveryLab({
     setAgentRunning(false);
 
     setCheckoutPaymentId(null);
-  };
 
+    setPaymentLoading(false);
+
+    setPaymentSuccess(false);
+
+    setPaymentFailure(false);
+
+    setPaymentFailureReason("");
+  };
 
   // =====================================================
   // RESET SUBSCRIPTION
   // =====================================================
 
   const resetSubscription = () => {
-
     setSubscriptionStarted(false);
 
     setSubscriptionResult(null);
@@ -511,13 +1278,11 @@ export default function RecoveryLab({
     setAgentRunning(false);
   };
 
-
   // =====================================================
   // RESET PROMISE
   // =====================================================
 
   const resetPromise = () => {
-
     setPromiseStarted(false);
 
     setPromiseResult(null);
@@ -525,6 +1290,9 @@ export default function RecoveryLab({
     setAgentRunning(false);
   };
 
+  // =====================================================
+  // RENDER
+  // =====================================================
 
   return (
     <div className="recovery-lab">
@@ -594,6 +1362,8 @@ export default function RecoveryLab({
 
           <nav className="lab-navigation">
 
+            {/* CHECKOUT */}
+
             <button
               className={
                 mode === "checkout"
@@ -631,6 +1401,8 @@ export default function RecoveryLab({
             </button>
 
 
+            {/* SUBSCRIPTION */}
+
             <button
               className={
                 mode === "subscription"
@@ -667,6 +1439,8 @@ export default function RecoveryLab({
 
             </button>
 
+
+            {/* PROMISE */}
 
             <button
               className={
@@ -922,9 +1696,7 @@ export default function RecoveryLab({
                         >
 
                           <div
-                            className={
-                              `lab-product-image ${product.imageClass}`
-                            }
+                            className={`lab-product-image ${product.imageClass}`}
                           >
 
                             {product.badge && (
@@ -1048,72 +1820,87 @@ export default function RecoveryLab({
                   </div>
 
 
-                  {checkoutError && !agentRunning && (
-                    <div className="agent-intervention-card customer-recovery-message">
+                  {/* CART RECOVERY MESSAGE */}
 
-                      <div className="agent-intervention-icon">
-                        R
-                      </div>
+                  {checkoutError &&
+                    !agentRunning && (
+                      <div className="agent-intervention-card customer-recovery-message">
 
-                      <div>
-                        <strong>
-                          Recovery agent unavailable
-                        </strong>
+                        <div className="agent-intervention-icon">
+                          R
+                        </div>
 
-                        <p>
-                          {checkoutError}
-                        </p>
-                      </div>
+                        <div>
 
-                    </div>
-                  )}
+                          <strong>
+                            Recovery agent unavailable
+                          </strong>
 
-                  {customerIntervention && !agentRunning && (
-                    <div className="agent-intervention-card customer-recovery-message">
+                          <p>
+                            {checkoutError}
+                          </p>
 
-                      <div className="agent-intervention-icon">
-                        R
-                      </div>
-
-                      <div>
-
-                        <strong>
-                          {customerIntervention.title}
-                        </strong>
-
-                        <p>
-                          {customerIntervention.message}
-                        </p>
+                        </div>
 
                       </div>
+                    )}
 
-                      {!checkoutCustomerAction &&
-                        customerIntervention.suggested_action &&
-                        customerIntervention.suggested_action_label && (
-                          <button
-                            className="outline-button"
-                            type="button"
-                            onClick={() =>
-                              recordCheckoutAction(
-                                customerIntervention.suggested_action as
-                                  | "RETURN_TO_CHECKOUT"
-                                  | "KEEP_CART_SAVED"
-                                  | "ABANDON"
-                              )
+
+                  {customerIntervention &&
+                    !agentRunning &&
+                    !paymentFailure &&
+                    !paymentSuccess && (
+                      <div className="agent-intervention-card customer-recovery-message">
+
+                        <div className="agent-intervention-icon">
+                          R
+                        </div>
+
+                        <div>
+
+                          <strong>
+                            {customerIntervention.title}
+                          </strong>
+
+                          <p>
+                            {customerIntervention.message}
+                          </p>
+
+                        </div>
+
+                        {!checkoutCustomerAction &&
+                          customerIntervention.suggested_action &&
+                          customerIntervention.suggested_action_label && (
+
+                            <button
+                              className="outline-button"
+                              type="button"
+                              onClick={() =>
+                                recordCheckoutAction(
+                                  customerIntervention.suggested_action as
+                                    | "RETURN_TO_CHECKOUT"
+                                    | "KEEP_CART_SAVED"
+                                    | "ABANDON"
+                                )
+                              }
+                            >
+                              {
+                                customerIntervention.suggested_action_label
+                              }
+                            </button>
+
+                          )}
+
+                        {checkoutCustomerAction && (
+                          <span className="ready-badge">
+                            {
+                              customerIntervention.suggested_action_label
                             }
-                          >
-                            {customerIntervention.suggested_action_label}
-                          </button>
+                          </span>
                         )}
 
-                      {checkoutCustomerAction && (
-                        <span className="ready-badge">
-                          {customerIntervention.suggested_action_label}
-                        </span>
-                      )}
-
-                    </div>
-                  )}
+                      </div>
+                    )}
 
 
                   <div className="cart-layout">
@@ -1128,9 +1915,7 @@ export default function RecoveryLab({
                         >
 
                           <div
-                            className={
-                              `cart-product-image ${item.imageClass}`
-                            }
+                            className={`cart-product-image ${item.imageClass}`}
                           >
                             {item.emoji}
                           </div>
@@ -1262,9 +2047,7 @@ export default function RecoveryLab({
                       <button
                         className="primary-lab-button"
                         onClick={() =>
-                          setStage(
-                            "checkout"
-                          )
+                          setStage("checkout")
                         }
                         type="button"
                       >
@@ -1307,6 +2090,146 @@ export default function RecoveryLab({
                     </div>
 
                   </div>
+
+
+                  {/* =================================================
+                      PAYMENT SUCCESS
+                  ================================================= */}
+
+                  {paymentSuccess && (
+                    <div className="agent-intervention-card customer-recovery-message">
+
+                      <div className="agent-intervention-icon">
+                        ✓
+                      </div>
+
+                      <div>
+
+                        <strong>
+                          Payment successful
+                        </strong>
+
+                        <p>
+                          Your order has been
+                          confirmed successfully.
+                        </p>
+
+                      </div>
+
+                      <span className="ready-badge">
+                        PAYMENT COMPLETE
+                      </span>
+
+                    </div>
+                  )}
+
+
+                  {/* =================================================
+                      PAYMENT FAILURE / LLM INTERVENTION
+                  ================================================= */}
+
+                  {paymentFailure &&
+                    customerIntervention &&
+                    !paymentSuccess &&
+                    !paymentLoading && (
+                      <div className="agent-intervention-card customer-recovery-message">
+
+                        <div className="agent-intervention-icon">
+                          R
+                        </div>
+
+                        <div>
+
+                          <strong>
+                            {
+                              customerIntervention.title
+                            }
+                          </strong>
+
+                          <p>
+                            {
+                              customerIntervention.message
+                            }
+                          </p>
+
+                        </div>
+
+                        {customerIntervention
+                          .suggested_action_label && (
+                          <button
+                            className="outline-button"
+                            type="button"
+                            onClick={
+                              handlePaymentRecoveryAction
+                            }
+                          >
+                            {
+                              customerIntervention.suggested_action_label
+                            }
+                          </button>
+                        )}
+
+                      </div>
+                    )}
+
+
+                  {/* =================================================
+                      PAYMENT FAILURE WITHOUT INTERVENTION
+                  ================================================= */}
+
+                  {paymentFailure &&
+                    !customerIntervention &&
+                    !paymentLoading &&
+                    checkoutError && (
+                      <div className="agent-intervention-card customer-recovery-message">
+
+                        <div className="agent-intervention-icon">
+                          !
+                        </div>
+
+                        <div>
+
+                          <strong>
+                            Payment could not be completed
+                          </strong>
+
+                          <p>
+                            {checkoutError}
+                          </p>
+
+                        </div>
+
+                      </div>
+                    )}
+
+
+                  {/* =================================================
+                      PAYMENT LOADING
+                  ================================================= */}
+
+                  {paymentLoading && (
+                    <div className="agent-intervention-card customer-recovery-message">
+
+                      <div className="agent-intervention-icon">
+                        ↻
+                      </div>
+
+                      <div>
+
+                        <strong>
+                          Processing your payment
+                        </strong>
+
+                        <p>
+                          Please wait while we
+                          securely process your
+                          payment.
+                        </p>
+
+                      </div>
+
+                    </div>
+                  )}
 
 
                   <div className="checkout-layout">
@@ -1360,6 +2283,10 @@ export default function RecoveryLab({
                       </div>
 
 
+                      {/* =================================================
+                          PAYMENT SECTION
+                      ================================================= */}
+
                       <div className="form-section">
 
                         <span>
@@ -1379,8 +2306,8 @@ export default function RecoveryLab({
                             </strong>
 
                             <p>
-                              Demo payment
-                              environment
+                              Powered by Razorpay
+                              Test Checkout
                             </p>
 
                           </div>
@@ -1394,64 +2321,89 @@ export default function RecoveryLab({
                       </div>
 
 
-                      <div className="abandon-zone">
+                      {/* =================================================
+                          ABANDON CHECKOUT
+                      ================================================= */}
 
-                        <div>
+                      {!paymentSuccess && (
+                        <div className="abandon-zone">
 
-                          <strong>
-                            Want to simulate
-                            lost revenue?
-                          </strong>
+                          <div>
 
-                          <span>
-                            Leave checkout
-                            before payment.
-                          </span>
+                            <strong>
+                              Want to simulate
+                              lost revenue?
+                            </strong>
 
-                        </div>
+                            <span>
+                              Leave checkout
+                              before payment.
+                            </span>
+
+                          </div>
 
 
-                        <button
-                          type="button"
-                          disabled={
-                            agentRunning
-                          }
-                          onClick={async () => {
-
-                            if (agentRunning) {
-                              return;
+                          <button
+                            type="button"
+                            disabled={
+                              agentRunning ||
+                              paymentLoading
                             }
+                            onClick={async () => {
 
-                            // Move back to the cart immediately.
-                            // The customer-facing intervention is rendered
-                            // only after the recovery agent responds.
-                            setStage("cart");
-                            setCustomerIntervention(null);
-                            setCheckoutCustomerAction(null);
-                            setCheckoutError("");
+                              if (
+                                agentRunning ||
+                                paymentLoading
+                              ) {
+                                return;
+                              }
 
-                            const result =
+                              setStage("cart");
+
+                              setCustomerIntervention(
+                                null
+                              );
+
+                              setCheckoutCustomerAction(
+                                null
+                              );
+
+                              setCheckoutError("");
+
+                              setPaymentSuccess(
+                                false
+                              );
+
+                              setPaymentFailure(
+                                false
+                              );
+
+                              setPaymentFailureReason(
+                                ""
+                              );
+
                               await runLabSimulation(
                                 "checkout_abandonment"
                               );
 
-                            if (!result) {
-                              return;
-                            }
+                            }}
+                          >
 
-                          }}
-                        >
+                            {agentRunning
+                              ? "Analyzing checkout..."
+                              : "Abandon checkout"}
 
-                          {agentRunning
-                            ? "Analyzing checkout..."
-                            : "Abandon checkout"}
+                          </button>
 
-                        </button>
-
-                      </div>
+                        </div>
+                      )}
 
                     </div>
 
+
+                    {/* =================================================
+                        ORDER SUMMARY
+                    ================================================= */}
 
                     <div className="lab-order-summary checkout-summary">
 
@@ -1524,6 +2476,10 @@ export default function RecoveryLab({
                         <button
                           className="coupon-button"
                           type="button"
+                          disabled={
+                            paymentLoading ||
+                            paymentSuccess
+                          }
                           onClick={() =>
                             setCouponApplied(
                               true
@@ -1557,26 +2513,74 @@ export default function RecoveryLab({
                       </div>
 
 
-                      <button
-                        className="primary-lab-button"
-                        type="button"
-                        onClick={() =>
-                          alert(
-                            "Payment successful! Revenue recovered."
-                          )
-                        }
-                      >
+                      {/* =================================================
+                          REAL RAZORPAY BUTTON
+                      ================================================= */}
 
-                        Pay{" "}
-                        {formatAmount(total)}
-                        {" "}→
+                      {!paymentSuccess && (
+                        <button
+                          className="primary-lab-button"
+                          type="button"
+                          disabled={
+                            paymentLoading
+                          }
+                          onClick={
+                            startRazorpayPayment
+                          }
+                        >
 
-                      </button>
+                          {paymentLoading
+                            ? "Processing..."
+                            : paymentFailure
+                              ? "Try payment again →"
+                              : `Pay ${formatAmount(
+                                  total
+                                )} →`}
+
+                        </button>
+                      )}
+
+
+                      {paymentSuccess && (
+                        <button
+                          className="primary-lab-button"
+                          type="button"
+                          onClick={
+                            resetCheckout
+                          }
+                        >
+                          Start new simulation →
+                        </button>
+                      )}
+
+
+                      {paymentFailureReason &&
+                        !customerIntervention &&
+                        !paymentLoading && (
+                          <div
+                            style={{
+                              marginTop:
+                                "10px",
+                              fontSize:
+                                "12px",
+                              opacity: 0.65,
+                            }}
+                          >
+                            Payment attempt:
+                            {" "}
+                            {
+                              paymentFailureReason
+                            }
+                          </div>
+                        )}
 
 
                       <button
                         className="reset-button"
                         type="button"
+                        disabled={
+                          paymentLoading
+                        }
                         onClick={
                           resetCheckout
                         }
@@ -1739,6 +2743,7 @@ export default function RecoveryLab({
                       {agentRunning ? (
 
                         <>
+
                           <div className="simulation-spinner">
                             ↻
                           </div>
@@ -1756,11 +2761,13 @@ export default function RecoveryLab({
                             ✦ Finding the safest
                             recovery path
                           </div>
+
                         </>
 
                       ) : (
 
                         <>
+
                           <div className="simulation-spinner">
                             ✓
                           </div>
@@ -1777,6 +2784,7 @@ export default function RecoveryLab({
                             ✦ Agent completed
                             recovery analysis
                           </div>
+
                         </>
 
                       )}
@@ -1818,7 +2826,9 @@ export default function RecoveryLab({
                         </div>
 
                         <span className="ready-badge">
-                          {subscriptionResult.decision}
+                          {
+                            subscriptionResult.decision
+                          }
                         </span>
 
                       </div>
@@ -1970,15 +2980,13 @@ export default function RecoveryLab({
 
                         <strong>
                           {
-                            subscriptionResult
-                              .action
+                            subscriptionResult.action
                           }
                         </strong>
 
                         <p>
                           {
-                            subscriptionResult
-                              .reason
+                            subscriptionResult.reason
                           }
                         </p>
 
@@ -2313,7 +3321,9 @@ export default function RecoveryLab({
                         </div>
 
                         <span className="ready-badge">
-                          {promiseResult.decision}
+                          {
+                            promiseResult.decision
+                          }
                         </span>
 
                       </div>

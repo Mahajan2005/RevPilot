@@ -776,6 +776,33 @@ body {
   background: #e7a61a;
 }
 
+.status-badge.paid {
+  background: #17253a;
+  color: #8fb9f5;
+}
+
+.status-badge.paid > span {
+  background: #5d9cf5;
+}
+
+.status-badge.intervention {
+  background: #34270f;
+  color: #e7a61a;
+}
+
+.status-badge.intervention > span {
+  background: #e7a61a;
+}
+
+.status-badge.pending {
+  background: #18202b;
+  color: #93a2b5;
+}
+
+.status-badge.pending > span {
+  background: #718095;
+}
+
 /* =========================
    BOTTOM GRID
 ========================= */
