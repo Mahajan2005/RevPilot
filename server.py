@@ -564,231 +564,274 @@ Return ONLY valid JSON:
 
 
 # =========================================================
-# SUBSCRIPTION RECOVERY — GROQ
+# SUBSCRIPTION RECOVERY
 # =========================================================
 
 def generate_subscription_recovery(payment):
+    return {
+        "decision": "UPDATE_PAYMENT_METHOD",
+        "action": "Ask customer to update or retry payment",
+        "reason": (
+            "The recurring renewal failed. The safest recovery "
+            "path is to notify the customer and let them resolve "
+            "the payment issue."
+        ),
+        "customer_title": "Your subscription needs attention",
+        "customer_message": (
+            "Your Pro Workspace renewal didn't go through. "
+            "Update your payment method or try again to keep "
+            "your plan active."
+        ),
+        "suggested_action": "UPDATE_PAYMENT_METHOD",
+        "suggested_action_label": "Fix payment",
+    }
+
+
+# =========================================================
+# PROMISE TO PAY RECOVERY
+# =========================================================
+
+def generate_promise_recovery(payment):
     """
-    Uses Groq to decide how to recover a failed subscription renewal.
+    Uses Groq to decide how to recover a missed promise-to-pay.
 
-    The customer scenario/history is supplied by the Recovery Lab.
-    The recovery decision itself is NOT hard-coded.
-
-    The model receives:
-    - subscription details
-    - successful renewal history
-    - previous failures
-    - previous recovery attempts
-    - current attempt
-    - payment method
-    - renewal timing
-    - available failure evidence
-
-    It must choose the safest next action based on that context.
+    The agent receives the customer's payment commitment history,
+    overdue amount, promise history and previous recovery attempts.
     """
 
     if not groq_client:
         raise RuntimeError(
             "Groq is not configured; the recovery agent cannot "
-            "analyze the subscription renewal."
+            "analyze the missed payment promise."
         )
 
-    subscription = payment.get("subscription") or {}
+    promise = payment.get("promise") or {}
 
-    plan_name = (
-        subscription.get("plan_name")
-        or "Pro Workspace"
+    amount = payment.get("amount", 0)
+
+    outstanding_amount = promise.get(
+        "outstanding_amount",
+        amount
     )
 
-    billing_cycle = (
-        subscription.get("billing_cycle")
-        or "Monthly"
+    invoice_id = promise.get(
+        "invoice_id",
+        "unknown"
     )
 
-    payment_method = (
-        subscription.get("payment_method")
-        or payment.get("method")
-        or "unknown"
+    invoice_date = promise.get(
+        "invoice_date",
+        "unknown"
     )
 
-    renewal_due_at = (
-        subscription.get("renewal_due_at")
-        or "unknown"
+    promise_date = promise.get(
+        "promise_date",
+        "unknown"
     )
 
-    successful_renewals = subscription.get(
-        "successful_renewals",
+    days_overdue = promise.get(
+        "days_overdue",
         0
     )
 
-    previous_failed_renewals = subscription.get(
-        "previous_failed_renewals",
+    previous_promises = promise.get(
+        "previous_promises",
         0
     )
 
-    previous_recovery_attempts = subscription.get(
+    promises_kept = promise.get(
+        "promises_kept",
+        0
+    )
+
+    promises_missed = promise.get(
+        "promises_missed",
+        0
+    )
+
+    previous_recovery_attempts = promise.get(
         "previous_recovery_attempts",
         0
     )
 
-    attempt_count = subscription.get(
-        "attempt_count",
-        1
+    customer_tenure = promise.get(
+        "customer_tenure",
+        "unknown"
     )
 
-    amount = payment.get("amount", 0)
-
-    failure_reason = (
-        payment.get("failure_reason")
-        or "subscription_payment_failed"
+    average_payment_delay = promise.get(
+        "average_payment_delay_days",
+        "unknown"
     )
 
-    raw_failure_reason = (
-        payment.get("razorpay_failure_reason")
-        or "unknown"
+    last_payment_amount = promise.get(
+        "last_payment_amount",
+        "unknown"
     )
 
-    failure_code = (
-        payment.get("razorpay_failure_code")
-        or "unknown"
-    )
-
-    failure_description = (
-        payment.get("razorpay_failure_description")
-        or "No failure description was provided."
+    payment_history = promise.get(
+        "payment_history",
+        []
     )
 
     prompt = f"""
-You are an autonomous subscription revenue recovery agent.
+You are an autonomous accounts receivable
+and revenue recovery agent.
 
-A customer's recurring subscription renewal failed.
+A customer made a promise to pay an outstanding invoice
+by a specific date, but that promise has now been missed.
 
-Your job is to decide the safest and most useful NEXT recovery
-action using the customer's subscription history and the available
-payment evidence.
+Your job is to decide the safest and most useful NEXT
+recovery action based on the customer's actual payment
+history and promise-to-pay behaviour.
 
 IMPORTANT:
-The customer profiles are intentionally different.
-Do NOT give every customer the same recovery decision.
-The history should influence the decision.
 
-SUBSCRIPTION CONTEXT
---------------------
+Different customer histories should produce different
+recovery decisions.
 
-Plan:
-{plan_name}
+Do NOT automatically send the same reminder to everyone.
 
-Billing cycle:
-{billing_cycle}
+CUSTOMER / INVOICE CONTEXT
+--------------------------
 
-Renewal amount:
-₹{amount}
+Outstanding amount:
+₹{outstanding_amount}
 
-Payment method:
-{payment_method}
+Invoice ID:
+{invoice_id}
 
-Renewal due:
-{renewal_due_at}
+Invoice date:
+{invoice_date}
 
-Successful renewals:
-{successful_renewals}
+Promised payment date:
+{promise_date}
 
-Previous failed renewals:
-{previous_failed_renewals}
+Days overdue:
+{days_overdue}
+
+Previous promises made:
+{previous_promises}
+
+Promises previously kept:
+{promises_kept}
+
+Promises previously missed:
+{promises_missed}
 
 Previous recovery attempts:
 {previous_recovery_attempts}
 
-Current renewal attempt:
-{attempt_count}
+Customer tenure:
+{customer_tenure}
 
-PAYMENT FAILURE EVIDENCE
------------------------
+Average payment delay:
+{average_payment_delay} days
 
-Failure category:
-{failure_reason}
+Last payment amount:
+₹{last_payment_amount}
 
-Raw failure reason:
-{raw_failure_reason}
-
-Failure code:
-{failure_code}
-
-Failure description:
-{failure_description}
+Recent payment history:
+{json.dumps(payment_history, ensure_ascii=False)}
 
 DECISION FRAMEWORK
 ------------------
 
-Think about:
+Think about the customer's behaviour before deciding.
 
-A. Customer history
-A customer with a strong history and no previous recovery attempts
-may justify a simpler, low-friction recovery path.
+A. RELIABLE CUSTOMER
 
-B. Repeated failures
-If the customer has already experienced several failed renewals
-or recovery attempts, avoid repeatedly asking them to do the same
-thing without evidence that it will help.
+If the customer has historically paid successfully
+and this is their first missed promise, a calm reminder
+or request for a revised commitment may be appropriate.
 
-C. Current payment method
-If the supplied evidence indicates that the payment method may be
-unusable, updating or changing it may be appropriate.
+B. REPEATED DELAYS
 
-D. Temporary failures
-If the evidence suggests a temporary issue, retrying later may be
-appropriate.
+If the customer has repeatedly missed promises,
+do not blindly send another identical reminder.
 
-E. Uncertain payment state
-If the payment may already be processing or its final state is
-unclear, avoid creating duplicate-payment risk.
+Consider requesting a new commitment or escalating
+the account depending on the available evidence.
 
-F. Insufficient evidence
-If there is not enough evidence for a safe automated action,
-choose MANUAL_REVIEW.
+C. HIGH RECOVERY FRICTION
+
+If several recovery attempts have already occurred,
+become more conservative.
+
+Avoid creating an endless automated reminder loop.
+
+D. CUSTOMER PAYMENT HISTORY
+
+A strong history of successful payments can support
+a lower-friction recovery action.
+
+Repeated missed commitments should make the recovery
+strategy more cautious.
+
+E. DAYS OVERDUE
+
+A newly missed promise may justify a softer intervention.
+
+A significantly overdue account may require escalation
+or manual review.
+
+F. INSUFFICIENT EVIDENCE
+
+If the available information is insufficient to justify
+a safe automated action, choose MANUAL_REVIEW.
+
+AVAILABLE STRATEGIES
+--------------------
+
+SEND_REMINDER
+
+Send a concise reminder asking the customer to complete
+the outstanding payment.
+
+REQUEST_NEW_COMMITMENT
+
+Ask the customer to choose or confirm a new payment date.
+
+WAIT_AND_RETRY
+
+Use when the available evidence suggests that waiting
+before another intervention is more appropriate.
+
+ESCALATE
+
+Escalate the account because repeated missed commitments
+or recovery attempts suggest that another basic reminder
+is unlikely to help.
+
+MANUAL_REVIEW
+
+Use when the available evidence is insufficient for a safe
+automated recovery decision.
 
 IMPORTANT RULES
 ---------------
 
 - Use only the supplied evidence.
 - Do not invent facts.
-- Do not invent a failure cause.
-- Customer history is context, not proof of why the payment failed.
-- Never claim that the renewal succeeded.
-- Do not encourage endless retries.
-- A later recovery attempt should generally become more conservative.
-- Do not automatically choose UPDATE_PAYMENT_METHOD for every case.
-- The selected strategy must be defensible from the supplied context.
-
-AVAILABLE STRATEGIES
---------------------
-
-RETRY_PAYMENT
-Ask the customer to try the renewal payment again now.
-
-CHANGE_PAYMENT_METHOD
-Ask the customer to use another payment method.
-
-WAIT_AND_RETRY
-Suggest trying the renewal again later when the issue appears temporary.
-
-CHECK_PAYMENT_STATUS
-Use when the payment state may be uncertain and another attempt
-could create duplicate-payment risk.
-
-UPDATE_PAYMENT_METHOD
-Ask the customer to update the current payment method.
-
-MANUAL_REVIEW
-Use when the available evidence is insufficient for a safe automated
-recovery action.
+- Do not invent a reason for the missed payment.
+- Do not assume the customer is unwilling to pay.
+- Do not shame or blame the customer.
+- Do not promise that payment will happen.
+- Do not invent discounts, penalties, rewards or fees.
+- Do not encourage endless reminders.
+- Consider the customer's actual history.
+- A later recovery attempt should generally become
+  more conservative.
+- The decision must be defensible from the supplied data.
 
 CUSTOMER-FACING RULES
 ---------------------
 
-The customer should receive a normal subscription message.
+The customer should receive a normal payment-related
+message from the merchant.
 
 Do NOT mention:
+
 - AI
 - LLM
 - agent
@@ -800,32 +843,37 @@ Do NOT mention:
 - payment processor internals
 
 Do NOT invent:
+
 - discounts
 - coupons
-- free trials
 - rewards
+- penalties
+- fees
 - urgency
 - scarcity
-- refunds
 - guarantees
 - unsupported causes
 
 The message should:
+
 - be concise
 - sound human
-- be calm and helpful
-- explain the next useful step
+- be calm and respectful
+- clearly explain the next useful step
 - match the selected strategy
 - avoid blaming the customer
 
 BUTTON LABEL RULES
 ------------------
 
-RETRY_PAYMENT -> "Try again"
-CHANGE_PAYMENT_METHOD -> "Use another method"
-WAIT_AND_RETRY -> "Try again later"
-CHECK_PAYMENT_STATUS -> "Check payment status"
-UPDATE_PAYMENT_METHOD -> "Update payment"
+SEND_REMINDER -> "Pay now"
+
+REQUEST_NEW_COMMITMENT -> "Choose new date"
+
+WAIT_AND_RETRY -> "I'll pay later"
+
+ESCALATE -> "Contact us"
+
 MANUAL_REVIEW -> "Continue"
 
 Return ONLY valid JSON in exactly this structure:
@@ -833,7 +881,7 @@ Return ONLY valid JSON in exactly this structure:
 {{
   "decision": "one recovery strategy",
   "action": "short internal description of what the system should do",
-  "reason": "short internal explanation based on actual customer history and evidence",
+  "reason": "short internal explanation based on actual customer history",
   "customer_title": "short natural customer-facing title",
   "customer_message": "short natural customer-facing message",
   "suggested_action": "same recovery strategy",
@@ -848,10 +896,10 @@ Return ONLY valid JSON in exactly this structure:
                 {
                     "role": "system",
                     "content": (
-                        "You are a careful subscription revenue "
+                        "You are a careful accounts receivable "
                         "recovery decision engine. "
-                        "Reason from supplied customer history and "
-                        "payment evidence only. "
+                        "Reason only from supplied customer history "
+                        "and payment evidence. "
                         "Adapt the recovery strategy to the context, "
                         "never invent facts, and return valid JSON only."
                     ),
@@ -872,39 +920,54 @@ Return ONLY valid JSON in exactly this structure:
             )
         )
 
-        return validate_payment_recovery_result(result)
+        required_fields = [
+            "decision",
+            "action",
+            "reason",
+            "customer_title",
+            "customer_message",
+            "suggested_action",
+            "suggested_action_label",
+        ]
+
+        for field in required_fields:
+            if not result.get(field):
+                raise ValueError(
+                    f"Missing LLM field: {field}"
+                )
+
+        allowed_strategies = {
+            "SEND_REMINDER",
+            "REQUEST_NEW_COMMITMENT",
+            "WAIT_AND_RETRY",
+            "ESCALATE",
+            "MANUAL_REVIEW",
+        }
+
+        if result["decision"] not in allowed_strategies:
+            raise ValueError(
+                "The promise recovery agent returned "
+                "an unsupported strategy."
+            )
+
+        if result["suggested_action"] not in allowed_strategies:
+            raise ValueError(
+                "The promise recovery agent returned "
+                "an unsupported customer action."
+            )
+
+        return result
 
     except Exception as error:
         print(
-            "Subscription recovery LLM error:",
+            "Promise-to-pay recovery LLM error:",
             error
         )
 
         raise RuntimeError(
-            "The recovery agent could not analyze the subscription renewal."
+            "The recovery agent could not analyze "
+            "the missed payment promise."
         ) from error
-
-
-# =========================================================
-# PROMISE TO PAY RECOVERY
-# =========================================================
-
-def generate_promise_recovery(payment):
-    return {
-        "decision": "MANUAL_REVIEW",
-        "action": "Send a payment reminder",
-        "reason": (
-            "The promised payment was missed, so the customer "
-            "needs a reminder before further automated action."
-        ),
-        "customer_title": "Payment reminder",
-        "customer_message": (
-            "Your promised payment is still pending. "
-            "Please complete the payment when you're ready."
-        ),
-        "suggested_action": "MANUAL_REVIEW",
-        "suggested_action_label": "Continue",
-    }
 
 
 # =========================================================
@@ -1195,35 +1258,11 @@ Return ONLY valid JSON in exactly this structure:
 # =========================================================
 
 def decide_action(payment):
-    """
-    Route Recovery Lab events by their explicit event type first.
-
-    This is important for subscription simulations because the actual
-    payment failure category can be something like gateway_timeout,
-    while the event is still a subscription renewal. The event type
-    tells us which recovery workflow should handle it.
-    """
-
-    event_type = (
-        payment.get("event_type")
-        or ""
-    ).lower()
-
     reason = (
         payment.get("failure_reason")
         or ""
     ).lower()
 
-    if event_type == "checkout_abandonment":
-        return generate_checkout_recovery(payment)
-
-    if event_type == "subscription_failure":
-        return generate_subscription_recovery(payment)
-
-    if event_type == "promise_missed":
-        return generate_promise_recovery(payment)
-
-    # Backward-compatible fallback for existing records.
     if reason == "checkout_abandoned":
         return generate_checkout_recovery(payment)
 
@@ -1270,10 +1309,7 @@ def process_payment_with_agent(payment):
     # CHECKOUT ABANDONMENT
     # -----------------------------------------------------
 
-    if (
-        payment.get("event_type") == "checkout_abandonment"
-        or payment.get("failure_reason") == "checkout_abandoned"
-    ):
+    if payment.get("failure_reason") == "checkout_abandoned":
         payment["recovered_by_agent"] = False
         payment["status"] = "checkout_abandoned"
 
@@ -1287,10 +1323,7 @@ def process_payment_with_agent(payment):
     # SUBSCRIPTION RECOVERY
     # -----------------------------------------------------
 
-    if (
-        payment.get("event_type") == "subscription_failure"
-        or payment.get("failure_reason") == "subscription_payment_failed"
-    ):
+    if payment.get("failure_reason") == "subscription_payment_failed":
         payment["recovered_by_agent"] = False
         payment["status"] = "subscription_recovery"
 
@@ -1304,10 +1337,7 @@ def process_payment_with_agent(payment):
     # PROMISE TO PAY
     # -----------------------------------------------------
 
-    if (
-        payment.get("event_type") == "promise_missed"
-        or payment.get("failure_reason") == "promise_missed"
-    ):
+    if payment.get("failure_reason") == "promise_missed":
         payment["recovered_by_agent"] = False
         payment["status"] = "promise_missed"
 
@@ -1375,9 +1405,20 @@ def get_payments():
 
 @app.route("/create-order", methods=["POST"])
 def create_order():
+    """
+    Create a Razorpay order AND create/update the internal payment
+    record that represents the same checkout attempt.
+
+    The internal payment record is deliberately created here instead
+    of only during checkout abandonment. This means a customer can
+    reach checkout and pay normally without first triggering recovery.
+    """
     payload = request.get_json(silent=True) or {}
 
     amount = payload.get("amount")
+    payment_id = payload.get("payment_id")
+    customer_id = payload.get("customer_id") or "lab_checkout_customer"
+    cart = payload.get("cart") or []
 
     if not amount:
         return jsonify({
@@ -1385,14 +1426,71 @@ def create_order():
             "message": "amount is required."
         }), 400
 
+    try:
+        numeric_amount = float(amount)
+    except (TypeError, ValueError):
+        return jsonify({
+            "success": False,
+            "message": "amount must be a valid number."
+        }), 400
+
+    if numeric_amount <= 0:
+        return jsonify({
+            "success": False,
+            "message": "amount must be greater than zero."
+        }), 400
+
+    if not isinstance(cart, list):
+        cart = []
+
     if not razorpay_client:
         return jsonify({
             "success": False,
             "message": "Razorpay is not configured."
         }), 500
 
+    # Reuse the same internal payment record for retries.
+    # A completely normal first checkout gets a new ID here.
+    if not payment_id:
+        payment_id = (
+            f"lab_checkout_payment_"
+            f"{os.urandom(4).hex()}"
+        )
+
+    payment = find_payment_by_id(payment_id)
+
+    if payment is None:
+        payment = {
+            "payment_id": payment_id,
+            "customer_id": customer_id,
+            "amount": numeric_amount,
+            "status": "initiated",
+            "bank": "UNKNOWN",
+            "method": "checkout",
+            "retry_attempts": 0,
+            "recovered_by_agent": False,
+            "source": "razorpay",
+            "event_type": "checkout_payment",
+            "created_at": datetime.utcnow().isoformat(),
+        }
+    else:
+        # Keep the recovery history, but move the current payment
+        # record back to an active attempt.
+        payment["amount"] = numeric_amount
+        payment["customer_id"] = customer_id or payment.get(
+            "customer_id",
+            "lab_checkout_customer"
+        )
+        payment["source"] = "razorpay"
+        payment["event_type"] = "checkout_payment"
+        payment["status"] = "initiated"
+        payment["recovered_by_agent"] = False
+
+    if cart:
+        payment["cart"] = cart
+
     try:
-        amount_paise = int(float(amount) * 100)
+        amount_paise = int(round(numeric_amount * 100))
 
         order = razorpay_client.order.create({
             "amount": amount_paise,
@@ -1403,13 +1501,24 @@ def create_order():
             ),
         })
 
+        payment["razorpay_order_id"] = order.get("id")
+        payment["payment_attempt_started_at"] = datetime.utcnow().isoformat()
+        upsert_payment(payment)
+
         return jsonify({
             "success": True,
             "order": order,
             "key_id": RAZORPAY_KEY_ID,
+            "payment_id": payment_id,
+            "payment": payment,
         })
 
     except Exception as error:
+        payment["status"] = "order_creation_failed"
+        payment["order_error"] = str(error)
+        payment["payment_attempt_failed_at"] = datetime.utcnow().isoformat()
+        upsert_payment(payment)
+
         print(
             "Razorpay order creation error:",
             error
@@ -1419,6 +1528,7 @@ def create_order():
             "success": False,
             "message": "Unable to create Razorpay order.",
             "error": str(error),
+            "payment_id": payment_id,
         }), 500
 
 
@@ -1920,14 +2030,6 @@ def customer_pay():
 
 @app.route("/lab-simulate", methods=["POST"])
 def lab_simulate():
-    """
-    Run one Recovery Lab scenario.
-
-    Subscription simulations can now send a complete customer history
-    through the `subscription` object. The backend passes that context
-    to the LLM instead of hard-coding the recovery decision.
-    """
-
     payload = request.get_json(
         silent=True
     ) or {}
@@ -1946,8 +2048,8 @@ def lab_simulate():
         []
     )
 
-    subscription = payload.get(
-        "subscription",
+    promise = payload.get(
+        "promise",
         {}
     )
 
@@ -1990,14 +2092,14 @@ def lab_simulate():
             "message": "cart must be an array.",
         }), 400
 
-    if event_type == "subscription_failure":
-        if subscription is None:
-            subscription = {}
+    if event_type == "promise_missed":
+        if promise is None:
+            promise = {}
 
-        if not isinstance(subscription, dict):
+        if not isinstance(promise, dict):
             return jsonify({
                 "success": False,
-                "message": "subscription must be an object.",
+                "message": "promise must be an object.",
             }), 400
 
     event_config = {
@@ -2009,24 +2111,12 @@ def lab_simulate():
             "source": "recovery_lab_checkout",
         },
         "subscription_failure": {
-            "customer_id": (
-                subscription.get("customer_id")
-                or "lab_subscription_customer"
-            ),
-            # The exact failure evidence can be supplied by the frontend.
-            # If omitted, keep it generic rather than inventing a cause.
+            "customer_id": "lab_subscription_customer",
             "failure_reason": (
-                subscription.get("failure_reason")
-                or "subscription_payment_failed"
+                "subscription_payment_failed"
             ),
-            "method": (
-                subscription.get("payment_method")
-                or "subscription"
-            ),
-            "bank": (
-                subscription.get("bank")
-                or "DEMO"
-            ),
+            "method": "subscription",
+            "bank": "DEMO",
             "source": "recovery_lab_subscription",
         },
         "promise_missed": {
@@ -2064,52 +2154,46 @@ def lab_simulate():
         "source": event_config[
             "source"
         ],
-        "event_type": event_type,
         "created_at": datetime.utcnow().isoformat(),
     }
 
     if event_type == "checkout_abandonment":
         payment["cart"] = cart
+        payment["event_type"] = (
+            "checkout_abandonment"
+        )
 
-    if event_type == "subscription_failure":
-        payment["subscription"] = subscription
+    if event_type == "promise_missed":
+        payment["promise"] = promise
 
-        # Preserve useful subscription fields at the top level too,
-        # making them easy to inspect in the merchant dashboard/logs.
-        payment["subscription_id"] = (
-            subscription.get("subscription_id")
+        payment["invoice_id"] = (
+            promise.get("invoice_id")
         )
-        payment["plan_name"] = (
-            subscription.get("plan_name")
+
+        payment["promise_date"] = (
+            promise.get("promise_date")
         )
-        payment["billing_cycle"] = (
-            subscription.get("billing_cycle")
+
+        payment["days_overdue"] = (
+            promise.get("days_overdue", 0)
         )
-        payment["payment_method"] = (
-            subscription.get("payment_method")
+
+        payment["previous_promises"] = (
+            promise.get("previous_promises", 0)
         )
-        payment["renewal_due_at"] = (
-            subscription.get("renewal_due_at")
+
+        payment["promises_kept"] = (
+            promise.get("promises_kept", 0)
         )
-        payment["successful_renewals"] = (
-            subscription.get("successful_renewals", 0)
+
+        payment["promises_missed"] = (
+            promise.get("promises_missed", 0)
         )
-        payment["previous_failed_renewals"] = (
-            subscription.get(
-                "previous_failed_renewals",
-                0
-            )
-        )
+
         payment["previous_recovery_attempts"] = (
-            subscription.get(
+            promise.get(
                 "previous_recovery_attempts",
                 0
-            )
-        )
-        payment["subscription_attempt_count"] = (
-            subscription.get(
-                "attempt_count",
-                1
             )
         )
 

@@ -1,0 +1,829 @@
+/* =========================================================
+   PROMISE TO PAY
+   ========================================================= */
+
+.promise-page {
+  width: 100%;
+  color: #181a20;
+  font-family: "Poppins", sans-serif;
+}
+
+.promise-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+  margin-bottom: 24px;
+}
+
+.promise-heading-copy {
+  min-width: 0;
+}
+
+.promise-heading-copy .simulation-label {
+  margin-bottom: 7px;
+  color: #7168d8;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.promise-heading-copy h1 {
+  margin: 0;
+  color: #181a20;
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+}
+
+.promise-heading-copy p {
+  max-width: 680px;
+  margin: 10px 0 0;
+  color: #858995;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.promise-heading-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-top: 4px;
+  padding: 8px 11px;
+  border: 1px solid #e6e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #656a76;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.promise-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #43a56d;
+  box-shadow: 0 0 0 3px #eaf7ef;
+}
+
+.promise-scenario-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.promise-scenario {
+  min-width: 0;
+  padding: 15px 16px;
+  border: 1px solid #e3e5e9;
+  border-radius: 10px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.promise-scenario:hover {
+  border-color: #c9cbd2;
+  transform: translateY(-1px);
+}
+
+.promise-scenario.selected {
+  border-color: #8c85df;
+  box-shadow: 0 0 0 2px rgba(113, 104, 216, 0.09);
+}
+
+.promise-scenario-top,
+.promise-scenario-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.promise-scenario-top > span:first-child {
+  color: #a1a4ad;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.promise-scenario strong {
+  display: block;
+  margin: 12px 0 8px;
+  color: #202229;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.promise-scenario-bottom {
+  color: #8b8e98;
+  font-size: 10px;
+}
+
+.promise-scenario-bottom span:first-child {
+  color: #353842;
+  font-weight: 600;
+}
+
+.promise-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: #f1f2f4;
+  color: #717580;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.promise-status.warning {
+  background: #fff5e8;
+  color: #a06b20;
+}
+
+.promise-status.danger {
+  background: #fdf0f0;
+  color: #aa5757;
+}
+
+.promise-status.large {
+  padding: 6px 9px;
+  font-size: 8px;
+}
+
+.promise-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(340px, 0.7fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.promise-account-card,
+.promise-agent-panel {
+  border: 1px solid #e3e5e9;
+  border-radius: 11px;
+  background: #fff;
+}
+
+.promise-account-card {
+  padding: 22px;
+}
+
+.promise-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+}
+
+.promise-eyebrow {
+  display: block;
+  color: #9a9da6;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.promise-card-header h2 {
+  margin: 6px 0 3px;
+  color: #202229;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.promise-card-header p {
+  margin: 0;
+  color: #92959e;
+  font-size: 11px;
+}
+
+.promise-amount-row {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  gap: 1px;
+  margin-top: 22px;
+  border: 1px solid #e9eaed;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #e9eaed;
+}
+
+.promise-amount-row > div {
+  min-width: 0;
+  padding: 13px 14px;
+  background: #fafafb;
+}
+
+.promise-amount-row span,
+.promise-details span {
+  display: block;
+  margin-bottom: 5px;
+  color: #9a9da6;
+  font-size: 9px;
+}
+
+.promise-amount-row strong {
+  color: #252830;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.promise-amount-row > div:first-child strong {
+  color: #181a20;
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+
+.promise-details {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.promise-details > div {
+  padding: 11px 12px;
+  border: 1px solid #ececef;
+  border-radius: 7px;
+}
+
+.promise-details strong {
+  color: #383b44;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.promise-section {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #ececef;
+}
+
+.promise-section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.promise-section-heading h3 {
+  margin: 5px 0 0;
+  color: #272a32;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.promise-history-count {
+  color: #696d77;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.promise-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 13px;
+}
+
+.promise-metrics > div {
+  padding: 12px;
+  border: 1px solid #ececef;
+  border-radius: 7px;
+}
+
+.promise-metrics strong {
+  display: block;
+  color: #252830;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.promise-metrics span {
+  display: block;
+  margin-top: 2px;
+  color: #9699a2;
+  font-size: 8px;
+}
+
+.promise-history-list {
+  margin-top: 11px;
+  padding: 10px 12px;
+  border-radius: 7px;
+  background: #f8f8fa;
+}
+
+.promise-history-list > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  color: #777b86;
+  font-size: 9px;
+}
+
+.history-dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #aaaeb7;
+}
+
+.promise-timeline {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #ececef;
+}
+
+.promise-timeline-heading {
+  margin-bottom: 13px;
+}
+
+.promise-timeline-track {
+  display: grid;
+  grid-template-columns: 1fr 24px 1fr 24px 1fr 24px 1fr;
+  align-items: start;
+}
+
+.promise-timeline-item {
+  min-width: 0;
+  display: flex;
+  gap: 8px;
+}
+
+.promise-timeline-item > span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 21px;
+  height: 21px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #edf5ef;
+  color: #4d9b69;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.promise-timeline-item.warning > span {
+  background: #fff3df;
+  color: #ae762c;
+}
+
+.promise-timeline-item.pending > span {
+  background: #f2f3f5;
+  color: #a2a5ad;
+}
+
+.promise-timeline-item strong {
+  display: block;
+  color: #454852;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.promise-timeline-item p {
+  margin: 3px 0 0;
+  color: #9a9da6;
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.promise-timeline-line {
+  height: 1px;
+  margin-top: 10px;
+  background: #dfe1e5;
+}
+
+.promise-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid #ececef;
+}
+
+.promise-primary-button,
+.promise-secondary-button {
+  min-height: 37px;
+  padding: 0 15px;
+  border-radius: 7px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.promise-primary-button {
+  border: 1px solid #202229;
+  background: #202229;
+  color: #fff;
+}
+
+.promise-primary-button:hover:not(:disabled) {
+  background: #111216;
+  transform: translateY(-1px);
+}
+
+.promise-primary-button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.promise-secondary-button {
+  border: 1px solid #e0e2e6;
+  background: #fff;
+  color: #6f737d;
+}
+
+.promise-secondary-button:hover {
+  border-color: #cfd1d7;
+}
+
+.promise-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 15px;
+  padding: 11px 12px;
+  border: 1px solid #f0d9d9;
+  border-radius: 7px;
+  background: #fff8f8;
+}
+
+.promise-error strong {
+  color: #a15151;
+  font-size: 9px;
+}
+
+.promise-error span {
+  color: #9a6666;
+  font-size: 9px;
+}
+
+.promise-agent-panel {
+  padding: 18px;
+}
+
+.promise-agent-header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #ececef;
+}
+
+.promise-agent-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 31px;
+  height: 31px;
+  border-radius: 7px;
+  background: #f1f0fb;
+  color: #7168d8;
+  font-size: 14px;
+}
+
+.promise-agent-header > div:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+}
+
+.promise-agent-header span:first-child {
+  display: block;
+  color: #9a9da6;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.promise-agent-header strong {
+  display: block;
+  margin-top: 3px;
+  color: #343740;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.promise-agent-state {
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: #edf7ef;
+  color: #4d9666;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.promise-agent-state.running {
+  background: #f3f1fc;
+  color: #7168d8;
+}
+
+.promise-agent-intro {
+  padding: 16px 0 13px;
+}
+
+.promise-agent-intro p {
+  margin: 7px 0 0;
+  color: #81858f;
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+.promise-signals {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.promise-signals > div {
+  padding: 10px;
+  border: 1px solid #ececef;
+  border-radius: 7px;
+}
+
+.promise-signals span {
+  display: block;
+  color: #9a9da6;
+  font-size: 8px;
+}
+
+.promise-signals strong {
+  display: block;
+  margin-top: 4px;
+  color: #30333b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.promise-strategy-section {
+  margin-top: 18px;
+}
+
+.promise-strategies {
+  margin-top: 8px;
+}
+
+.promise-strategy {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 8px;
+  border-bottom: 1px solid #f0f0f2;
+  opacity: 0.68;
+}
+
+.promise-strategy:last-child {
+  border-bottom: 0;
+}
+
+.promise-strategy.active {
+  margin: 0 -5px;
+  padding: 9px 13px;
+  border: 1px solid #d9d5f4;
+  border-radius: 7px;
+  background: #faf9ff;
+  opacity: 1;
+}
+
+.promise-strategy > span {
+  color: #a5a8b0;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.promise-strategy > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.promise-strategy strong {
+  display: block;
+  color: #4b4e57;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.promise-strategy p {
+  margin: 3px 0 0;
+  color: #999ca5;
+  font-size: 8px;
+  line-height: 1.4;
+}
+
+.promise-strategy b {
+  flex-shrink: 0;
+  padding: 3px 5px;
+  border-radius: 4px;
+  background: #eeeafb;
+  color: #7168d8;
+  font-size: 6px;
+  letter-spacing: 0.07em;
+}
+
+.promise-agent-thinking,
+.promise-result,
+.promise-agent-empty {
+  margin-top: 15px;
+  padding: 13px;
+  border-radius: 7px;
+  background: #f8f8fa;
+}
+
+.promise-agent-thinking {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.promise-thinking-spinner {
+  font-size: 17px;
+  color: #7168d8;
+  animation: promise-spin 1.2s linear infinite;
+}
+
+@keyframes promise-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.promise-agent-thinking strong {
+  display: block;
+  color: #555861;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.promise-agent-thinking span {
+  display: block;
+  margin-top: 3px;
+  color: #9699a2;
+  font-size: 8px;
+}
+
+.promise-result {
+  border: 1px solid #e1def7;
+  background: #faf9ff;
+}
+
+.promise-result-top > span,
+.promise-result-reason > span,
+.promise-recommended-action > span {
+  display: block;
+  color: #9a9da6;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+}
+
+.promise-result-top strong {
+  display: block;
+  margin-top: 5px;
+  color: #49435f;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.promise-result-reason {
+  margin-top: 13px;
+  padding-top: 11px;
+  border-top: 1px solid #e9e6f7;
+}
+
+.promise-result-reason p,
+.promise-recommended-action p {
+  margin: 5px 0 0;
+  color: #77717f;
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.promise-recommended-action {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid #e9e6f7;
+}
+
+.promise-recommended-action strong {
+  display: block;
+  margin-top: 5px;
+  color: #484b54;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.promise-agent-empty {
+  display: flex;
+  gap: 10px;
+  border: 1px solid #ececef;
+  background: #fbfbfc;
+}
+
+.promise-agent-empty > span {
+  color: #aaaeb7;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.promise-agent-empty strong {
+  display: block;
+  color: #565962;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.promise-agent-empty p {
+  margin: 4px 0 0;
+  color: #989ba4;
+  font-size: 8px;
+  line-height: 1.55;
+}
+
+.promise-agent-disclaimer {
+  margin: 14px 0 0;
+  color: #a1a4ac;
+  font-size: 7px;
+  line-height: 1.5;
+}
+
+@media (max-width: 1100px) {
+  .promise-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .promise-agent-panel {
+    order: 2;
+  }
+}
+
+@media (max-width: 800px) {
+  .promise-scenario-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .promise-heading {
+    flex-direction: column;
+  }
+
+  .promise-amount-row,
+  .promise-details,
+  .promise-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .promise-timeline-track {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .promise-timeline-line {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .promise-account-card,
+  .promise-agent-panel {
+    padding: 15px;
+  }
+
+  .promise-amount-row,
+  .promise-details,
+  .promise-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .promise-card-header {
+    flex-direction: column;
+  }
+
+  .promise-action-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
