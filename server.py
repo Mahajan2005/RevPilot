@@ -502,10 +502,10 @@ def build_cart_summary(payment):
             ),
             "description": (
                 item.get("description")
-                or item.get("subtitle")
+                or item.get("product_description")
+                or item.get("details")
                 or ""
             ),
-            "badge": item.get("badge") or "",
             "quantity": item.get("quantity", 1),
             "price": (
                 item.get("price")
@@ -676,26 +676,22 @@ def generate_checkout_recovery(payment):
     if isinstance(cart, list):
         for item in cart:
             try:
-                item_count += int(item.get("quantity", 1))
+                item_count += int(
+                    item.get("quantity", 1)
+                )
             except (TypeError, ValueError):
                 item_count += 1
 
     cart_summary = build_cart_summary(payment)
 
     prompt = f"""
-You are an ecommerce revenue recovery specialist.
+You are a checkout recovery agent for an ecommerce store.
 
-A high-intent customer reached checkout but did not complete payment.
-Your goal is to create the most compelling truthful reason for them to
-return and finish the purchase.
+A customer started checkout but abandoned it before payment.
 
-This is NOT a generic reminder. Treat the cart like a real shopping
-conversation: understand what the customer chose, surface a useful
-benefit of the actual product, remove friction, and give them a clear
-next step.
+Decide the most appropriate, NON-PUSHY way to bring the customer back.
 
 CUSTOMER CHECKOUT DATA
-----------------------
 
 Cart value: ₹{amount}
 Number of items: {item_count}
@@ -703,70 +699,72 @@ Number of items: {item_count}
 Cart items:
 {json.dumps(cart_summary, ensure_ascii=False)}
 
-RECOVERY GOAL
--------------
+PRODUCT CONTEXT
+The "description" field is the merchant-provided product description.
+Treat it as the source of truth for product benefits and use it to make
+the customer-facing message specific.
 
-Maximize the probability of a completed purchase while staying truthful.
-The customer already showed purchase intent by reaching checkout.
+RULES
 
-MESSAGE RULES
--------------
+1. Do not mention AI, agents, models, algorithms, prediction,
+   backend systems, or merchant dashboards.
 
-1. Write a message that feels written specifically for THIS cart.
-2. Mention the most relevant product or products by their real names.
-3. Use the real product description/attributes supplied above when useful.
-4. Lead with a genuine product benefit, convenience, or the fact that the
-   cart is saved — whichever is most persuasive from the supplied data.
-5. Make the next step obvious and low-friction.
-6. Make the copy warm, concise, and conversion-oriented.
-7. Avoid generic phrases such as "your cart is waiting" unless they are
-   combined with something specific from the cart.
-8. Do not repeat a fixed template. Vary the opening and phrasing based on
-   the cart contents.
-9. Never invent discounts, coupons, free shipping, stock scarcity,
-   deadlines, rewards, guarantees, reviews, or product benefits that are
-   not present in the supplied data.
-10. Never guilt-trip or pressure the customer.
-11. Do not mention AI, agents, models, algorithms, dashboards, or internal
-    systems.
-12. Keep customer_message to 1-3 short sentences.
-13. customer_title should be specific and attractive, not generic.
+2. The customer should receive a polished, warm, attractive message
+   that feels written specifically for THIS cart.
 
-CONVERSION GUIDANCE
--------------------
+3. PRODUCT DESCRIPTIONS ARE IMPORTANT CONTEXT. Use the descriptions
+   to identify ONE genuine product benefit that makes the item appealing.
+   Do not merely repeat the product name.
 
-- For one strong product: spotlight its actual benefit and invite the
-  customer to finish checkout.
-- For multiple products: mention the strongest or most distinctive item,
-  while acknowledging the saved cart.
-- For a low-friction purchase: use a simple, confident return-to-checkout
-  invitation.
-- If the cart information is sparse: focus on the saved cart and easy
-  completion rather than inventing product claims.
+4. Never invent discounts, coupons, free shipping, stock scarcity,
+   deadlines, product features, or benefits that are not present in
+   the supplied product data.
 
-CHOOSE ONE CUSTOMER ACTION
---------------------------
+5. Avoid generic recovery copy such as:
+   "Your cart is waiting", "Don't miss out", "Complete your purchase",
+   "Come back and finish your order", or "Your items are still in your cart"
+   unless substantially transformed into something specific and engaging.
 
-RETURN_TO_CHECKOUT
-The customer appears to have strong purchase intent and should be brought
-back to checkout immediately.
+6. Make the title punchy and customer-facing. A tasteful emoji is okay.
 
-KEEP_CART_SAVED
-The customer may need more time. Preserve the cart and make returning easy.
+7. Make the message conversational and benefit-led: acknowledge what
+   they were considering, surface a real benefit from the product
+   description, then make returning to checkout feel easy.
 
-ABANDON
-Use only when recovery would clearly be inappropriate.
+8. Keep customer_message to 1-2 short sentences and under 35 words.
+   Keep customer_title under 8 words.
+
+9. For multiple products, focus on ONE product with the clearest,
+   most compelling benefit. Do not list every cart item.
+
+10. Do not guilt-trip the customer or manufacture urgency.
+
+11. Choose ONE suggested action:
+   RETURN_TO_CHECKOUT
+   KEEP_CART_SAVED
+   ABANDON
+
+12. Prefer RETURN_TO_CHECKOUT when purchase intent is strong.
+
+13. Use KEEP_CART_SAVED when the customer may simply need more time.
+
+14. Use ABANDON only when recovery would clearly be inappropriate.
+
+Before returning JSON, silently check:
+- Does the message use a real detail from a product description?
+- Does it avoid generic cart-abandonment boilerplate?
+If not, rewrite it.
 
 Return ONLY valid JSON:
 
 {{
   "decision": "RE_ENGAGE",
   "action": "short internal action description",
-  "reason": "short internal reason based on the cart",
-  "customer_title": "specific attractive customer-facing title",
-  "customer_message": "1-3 sentence persuasive customer-facing message",
+  "reason": "short internal reason",
+  "customer_title": "short customer-facing title",
+  "customer_message": "natural customer-facing message",
   "suggested_action": "RETURN_TO_CHECKOUT",
-  "suggested_action_label": "short clear button label"
+  "suggested_action_label": "short button label"
 }}
 """
 
@@ -777,10 +775,8 @@ Return ONLY valid JSON:
                 {
                     "role": "system",
                     "content": (
-                        "You are a high-converting but truthful ecommerce "
-                        "recovery decision engine. Personalize every message "
-                        "from the supplied cart. Never invent offers or facts. "
-                        "Return valid JSON only."
+                        "You are a careful ecommerce recovery "
+                        "decision engine. Return valid JSON only."
                     ),
                 },
                 {
@@ -788,13 +784,15 @@ Return ONLY valid JSON:
                     "content": prompt,
                 },
             ],
-            temperature=0.9,
+            temperature=0.7,
             max_completion_tokens=800,
             response_format={"type": "json_object"},
         )
 
         result = json.loads(
-            clean_llm_json(response.choices[0].message.content)
+            clean_llm_json(
+                response.choices[0].message.content
+            )
         )
 
         required_fields = [
@@ -809,14 +807,18 @@ Return ONLY valid JSON:
 
         for field in required_fields:
             if not result.get(field):
-                raise ValueError(f"Missing LLM field: {field}")
+                raise ValueError(
+                    f"Missing LLM field: {field}"
+                )
 
         if result["suggested_action"] not in {
             "RETURN_TO_CHECKOUT",
             "KEEP_CART_SAVED",
             "ABANDON",
         }:
-            raise ValueError("Unsupported checkout customer action.")
+            raise ValueError(
+                "Unsupported checkout customer action."
+            )
 
         return result
 
@@ -833,122 +835,144 @@ Return ONLY valid JSON:
 
 def generate_subscription_recovery(payment):
     """
-    Use the subscriber's renewal history to choose a context-aware
-    recovery strategy instead of returning the same decision for every
-    failed renewal.
+    Decide the best next action for a failed recurring payment.
+
+    The subscription object contains the scenario history supplied by
+    Recovery Lab. The model must use that evidence rather than returning
+    one generic "update payment method" decision for every customer.
     """
-    if not groq_client:
-        raise RuntimeError(
-            "Groq is not configured; the recovery agent cannot "
-            "analyze the subscription failure."
-        )
 
     subscription = payment.get("subscription") or {}
 
-    plan_name = subscription.get("plan_name") or "subscription"
+    successful_renewals = int(subscription.get("successful_renewals", 0) or 0)
+    previous_failures = int(subscription.get("previous_failed_renewals", 0) or 0)
+    recovery_attempts = int(subscription.get("previous_recovery_attempts", 0) or 0)
+    attempt_count = int(subscription.get("attempt_count", 1) or 1)
+    payment_method = subscription.get("payment_method", "unknown")
+    plan_name = subscription.get("plan_name", "subscription")
+    billing_cycle = subscription.get("billing_cycle", "unknown")
     amount = subscription.get("amount", payment.get("amount", 0))
-    billing_cycle = subscription.get("billing_cycle") or "billing cycle"
-    payment_method = subscription.get("payment_method") or "unknown"
-    successful_renewals = subscription.get("successful_renewals", 0)
-    previous_failures = subscription.get("previous_failed_renewals", 0)
-    previous_recovery_attempts = subscription.get(
-        "previous_recovery_attempts", 0
-    )
-    attempt_count = subscription.get("attempt_count", 1)
-    renewal_due_at = subscription.get("renewal_due_at") or "today"
+
+    # Deterministic fallback keeps the demo useful even if the LLM is
+    # temporarily unavailable, while still making the scenarios behave
+    # differently based on their evidence.
+    if previous_failures == 0 and recovery_attempts == 0 and successful_renewals >= 5:
+        fallback = {
+            "decision": "RETRY_PAYMENT",
+            "action": "Retry the renewal once because this is a first-time failure for a historically reliable subscriber.",
+            "reason": (
+                f"The customer has {successful_renewals} successful renewals, "
+                "no previous renewal failures, and no prior recovery attempts. "
+                "A low-friction retry is appropriate before asking the customer to change anything."
+            ),
+            "customer_title": "Your renewal needs one more try",
+            "customer_message": (
+                f"Your {plan_name} renewal could not be completed on the first attempt. "
+                "Because this is an isolated payment issue, you can try the renewal again to keep your plan active."
+            ),
+            "suggested_action": "RETRY_PAYMENT",
+            "suggested_action_label": "Try again",
+        }
+    elif recovery_attempts >= 2 or previous_failures >= 3 or attempt_count >= 3:
+        fallback = {
+            "decision": "MANUAL_REVIEW",
+            "action": "Pause repeated automated recovery and route the account for review.",
+            "reason": (
+                f"This renewal is already attempt #{attempt_count}, with {previous_failures} previous failures "
+                f"and {recovery_attempts} prior recovery attempts. Repeating the same automated intervention "
+                "is unlikely to improve recovery, so the account should be reviewed."
+            ),
+            "customer_title": "We need a little help with your renewal",
+            "customer_message": (
+                f"We could not complete your {plan_name} renewal after several attempts. "
+                "Please contact support so we can help keep your subscription active."
+            ),
+            "suggested_action": "MANUAL_REVIEW",
+            "suggested_action_label": "Continue",
+        }
+    else:
+        fallback = {
+            "decision": "UPDATE_PAYMENT_METHOD",
+            "action": "Ask the customer to update or choose another payment method before the next retry.",
+            "reason": (
+                f"The account has {previous_failures} previous renewal failures and {recovery_attempts} prior "
+                "recovery attempt. The history shows more friction than a clean first-time failure, so updating "
+                "the payment method is a better next step than immediately repeating the same attempt."
+            ),
+            "customer_title": "Your payment method needs attention",
+            "customer_message": (
+                f"Your {plan_name} renewal could not be completed. "
+                "Choose another payment method or update your current one to keep your subscription active."
+            ),
+            "suggested_action": "UPDATE_PAYMENT_METHOD",
+            "suggested_action_label": "Update payment",
+        }
+
+    if not groq_client:
+        return fallback
 
     prompt = f"""
 You are an autonomous subscription revenue recovery agent.
 
-A customer's recurring subscription renewal has failed. Decide the
-BEST NEXT recovery action using the customer's actual renewal history.
-Do not give the same recommendation to every subscriber.
+A recurring payment for a subscription has just failed. Decide the BEST NEXT
+RECOVERY ACTION using the customer's actual renewal history below.
 
-SUBSCRIPTION CONTEXT
---------------------
+Do not give every customer the same action. A first-time failure from a highly
+reliable subscriber should be treated differently from repeated failures with
+multiple prior recovery attempts.
+
+SUBSCRIPTION
+------------
 Plan: {plan_name}
 Amount: ₹{amount}
 Billing cycle: {billing_cycle}
 Payment method: {payment_method}
-Renewal due: {renewal_due_at}
+Current attempt: #{attempt_count}
+
+CUSTOMER HISTORY
+----------------
 Successful renewals: {successful_renewals}
 Previous failed renewals: {previous_failures}
-Previous recovery attempts: {previous_recovery_attempts}
-Current failed attempt: #{attempt_count}
+Previous recovery attempts: {recovery_attempts}
 
-DECISION LOGIC
---------------
+DECISION POLICY
+---------------
+1. RETRY_PAYMENT
+   Prefer this for a strong historical payer when this is an isolated first
+   failure and there is no evidence that another retry would be repetitive.
 
-1. LOYAL / CLEAN HISTORY
-If the subscriber has many successful renewals, no previous failures,
-and no recovery attempts, prefer a low-friction action such as RETRY_PAYMENT.
-Do not create unnecessary friction for a normally reliable customer.
+2. UPDATE_PAYMENT_METHOD
+   Prefer this when there is meaningful payment friction or previous failures,
+   but the account is still reasonably recoverable.
 
-2. SOME PAYMENT FRICTION
-If there are a few previous failures or one previous recovery attempt,
-consider UPDATE_PAYMENT_METHOD or RETRY_PAYMENT depending on the evidence.
-Avoid blindly repeating the same path.
+3. MANUAL_REVIEW
+   Prefer this when repeated failures/recovery attempts make another automated
+   attempt low-confidence or potentially annoying.
 
-3. REPEATED FAILURE / RECOVERY FATIGUE
-If failures and recovery attempts are repeated, become more conservative.
-Prefer UPDATE_PAYMENT_METHOD, CONTACT_CUSTOMER, or MANUAL_REVIEW rather
-than endlessly retrying the same payment path.
+4. WAIT_AND_RETRY
+   Use only when the evidence supports waiting before another attempt.
 
-4. ATTEMPT COUNT MATTERS
-The current attempt number should influence the decision. A later attempt
-should generally require stronger evidence before another automatic retry.
+5. CHECK_PAYMENT_STATUS
+   Use only when the evidence suggests the payment may still be processing.
 
-5. NO INVENTED CAUSES
-The supplied history does not prove why the payment failed. Do not invent
-an expired card, insufficient funds, bank outage, or any other cause.
+IMPORTANT
+---------
+- Choose based on the evidence, not on the scenario name.
+- Do not default to UPDATE_PAYMENT_METHOD.
+- Do not invent a decline reason, bank response, discount, refund, urgency,
+  or any other fact not supplied above.
+- The customer message must match the chosen action.
+- Keep the message short and human.
 
-AVAILABLE STRATEGIES
---------------------
-
-RETRY_PAYMENT
-Ask the customer to try the renewal payment again now.
-
-UPDATE_PAYMENT_METHOD
-Ask the customer to update or replace the payment method before retrying.
-
-CONTACT_CUSTOMER
-Ask the customer to contact the merchant/support because repeated friction
-makes another automatic attempt less appropriate.
-
-MANUAL_REVIEW
-Escalate for merchant review when automated recovery is not sufficiently safe.
-
-CUSTOMER MESSAGE RULES
-----------------------
-
-The customer-facing message must:
-- sound natural and specific to the subscription;
-- mention the real plan name;
-- explain the useful next step clearly;
-- be calm and non-blaming;
-- preserve the value of keeping the subscription active;
-- avoid unsupported claims about the failure;
-- never invent discounts, penalties, urgency, scarcity, rewards, or causes;
-- never mention AI, agents, models, algorithms, dashboards, or internal systems;
-- avoid using the exact same wording for every scenario.
-
-BUTTON LABELS
--------------
-RETRY_PAYMENT -> "Try renewal again"
-UPDATE_PAYMENT_METHOD -> "Update payment method"
-CONTACT_CUSTOMER -> "Contact support"
-MANUAL_REVIEW -> "Continue"
-
-Return ONLY valid JSON:
-
+Return ONLY valid JSON in exactly this structure:
 {{
-  "decision": "one recovery strategy",
-  "action": "short internal description",
+  "decision": "RETRY_PAYMENT | UPDATE_PAYMENT_METHOD | MANUAL_REVIEW | WAIT_AND_RETRY | CHECK_PAYMENT_STATUS",
+  "action": "short description of what the agent should do",
   "reason": "short evidence-based explanation",
-  "customer_title": "short natural title",
-  "customer_message": "short personalized customer-facing message",
-  "suggested_action": "same recovery strategy",
-  "suggested_action_label": "matching button label"
+  "customer_title": "short customer-facing title",
+  "customer_message": "short customer-facing message",
+  "suggested_action": "same strategy as decision",
+  "suggested_action_label": "Try again | Update payment | Continue | Try again later | Check status"
 }}
 """
 
@@ -959,17 +983,14 @@ Return ONLY valid JSON:
                 {
                     "role": "system",
                     "content": (
-                        "You are a careful subscription revenue recovery "
-                        "decision engine. Adapt the strategy to renewal history, "
-                        "avoid invented causes, and return valid JSON only."
+                        "You are a careful subscription payment recovery decision engine. "
+                        "Use the supplied renewal history, differentiate decisions when the evidence differs, "
+                        "never invent payment facts, and return valid JSON only."
                     ),
                 },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
+                {"role": "user", "content": prompt},
             ],
-            temperature=0.5,
+            temperature=0.55,
             max_completion_tokens=800,
             response_format={"type": "json_object"},
         )
@@ -978,7 +999,21 @@ Return ONLY valid JSON:
             clean_llm_json(response.choices[0].message.content)
         )
 
-        required_fields = [
+        allowed = {
+            "RETRY_PAYMENT",
+            "UPDATE_PAYMENT_METHOD",
+            "MANUAL_REVIEW",
+            "WAIT_AND_RETRY",
+            "CHECK_PAYMENT_STATUS",
+        }
+
+        if result.get("decision") not in allowed:
+            raise ValueError("Unsupported subscription recovery decision")
+
+        result["suggested_action"] = result.get("suggested_action") or result["decision"]
+        result["suggested_action_label"] = result.get("suggested_action_label") or fallback["suggested_action_label"]
+
+        for field in [
             "decision",
             "action",
             "reason",
@@ -986,32 +1021,15 @@ Return ONLY valid JSON:
             "customer_message",
             "suggested_action",
             "suggested_action_label",
-        ]
-
-        for field in required_fields:
+        ]:
             if not result.get(field):
-                raise ValueError(f"Missing LLM field: {field}")
-
-        allowed = {
-            "RETRY_PAYMENT",
-            "UPDATE_PAYMENT_METHOD",
-            "CONTACT_CUSTOMER",
-            "MANUAL_REVIEW",
-        }
-
-        if result["decision"] not in allowed:
-            raise ValueError("Unsupported subscription recovery strategy.")
-
-        if result["suggested_action"] not in allowed:
-            raise ValueError("Unsupported subscription customer action.")
+                raise ValueError(f"Missing subscription LLM field: {field}")
 
         return result
 
     except Exception as error:
         print("Subscription recovery LLM error:", error)
-        raise RuntimeError(
-            "The recovery agent could not analyze the subscription failure."
-        ) from error
+        return fallback
 
 
 # =========================================================
@@ -1608,13 +1626,56 @@ Do NOT invent:
 - unsupported causes
 
 The message should:
-- be concise
-- sound human
-- explain what the customer can do next
-- match the chosen strategy
+- be concise, polished, and reassuring
+- sound like a helpful ecommerce checkout assistant
+- clearly tell the customer WHAT TO DO NEXT, not merely say that payment failed
+- match the chosen strategy and the actual failure evidence
 - avoid blaming the customer
 - avoid claiming something is definitely wrong when the evidence
   does not establish that
+- be action-oriented so the customer immediately understands the next step
+- when the customer is paying by card and the evidence supports trying
+  another payment method, naturally suggest checking a saved card or
+  choosing another saved payment method when appropriate
+- when the evidence supports a retry, reassure the customer and invite
+  them to try again
+- when the payment state is uncertain, tell the customer to check payment
+  status before attempting another payment
+
+GOOD STYLE EXAMPLES (use the style, not the exact wording)
+
+Card failure:
+Title: "That payment didn't go through"
+Message: "Your payment didn't go through this time. Try one of your saved cards or choose another payment method to complete your order."
+
+Temporary issue:
+Title: "Almost there ✨"
+Message: "Your payment didn't go through, but it looks like a temporary hiccup. Give it another try — your order is still ready."
+
+Uncertain state:
+Title: "Let's make sure first"
+Message: "We couldn't confirm the payment status yet. Check your payment status before trying again so you don't get charged twice."
+
+Avoid weak messages such as:
+- "Your payment failed."
+- "Please try again."
+- "There was an error with your payment."
+These do not provide a useful solution.
+
+SOLUTION QUALITY CHECK
+----------------------
+
+Before returning the JSON, silently verify that customer_message answers:
+"What should I do now?"
+
+The message must contain a concrete next step that follows from the
+selected strategy. Do not return a bare failure notification.
+
+For card payments, prefer language such as "check your saved cards",
+"try another saved card", or "choose another payment method" ONLY when
+the selected strategy and available evidence support changing payment
+methods. Never claim that saved cards exist if that is not implied by the
+checkout context.
 
 BUTTON RULES
 ------------
@@ -2622,15 +2683,15 @@ def lab_simulate():
         )
 
     if event_type == "subscription_failure":
-        subscription_payload = payload.get("subscription", {})
-
-        if not isinstance(subscription_payload, dict):
+        subscription = payload.get("subscription") or {}
+        if not isinstance(subscription, dict):
             return jsonify({
                 "success": False,
                 "message": "subscription must be an object.",
             }), 400
 
-        payment["subscription"] = subscription_payload
+        payment["subscription"] = subscription
+        payment["event_type"] = "subscription_failure"
 
     if event_type == "promise_missed":
         payment["promise"] = promise
@@ -3019,21 +3080,30 @@ def simulate_revenue_autopilot():
             ("checkout", "checkout_failed", 6999, "Acme Systems", "Checkout payment failed"),
             ("checkout", "checkout_failed", 3499, "Northstar Labs", "Checkout payment failed"),
             ("checkout", "checkout_abandoned", 5299, "PixelWorks", "Checkout abandoned"),
+            ("checkout", "checkout_failed", 8499, "Orbit Commerce", "Checkout payment failed"),
+            ("checkout", "checkout_abandoned", 3999, "Nova Technologies", "Checkout abandoned"),
         ],
         "renewal_day": [
             ("subscription", "subscription_failure", 2499, "Nova Technologies", "Subscription renewal failed"),
             ("subscription", "subscription_failure", 7999, "BrightDesk", "Subscription payment method needs attention"),
             ("subscription", "subscription_failure", 4499, "Vertex Labs", "Subscription renewal failed"),
+            ("subscription", "subscription_failure", 11999, "Acme Systems", "Enterprise renewal failed"),
+            ("subscription", "subscription_failure", 5499, "Northstar Labs", "Subscription renewal failed"),
         ],
         "checkout_dropoff": [
             ("checkout", "checkout_abandoned", 8999, "Orbit Commerce", "High-intent checkout abandoned"),
             ("checkout", "checkout_abandoned", 4499, "Acme Systems", "Checkout abandoned"),
             ("checkout", "checkout_failed", 11999, "Nova Technologies", "Checkout payment failed"),
+            ("checkout", "checkout_abandoned", 7499, "PixelWorks", "High-value checkout abandoned"),
+            ("checkout", "checkout_abandoned", 15999, "Zenith Retail", "High-value checkout abandoned"),
+            ("checkout", "checkout_failed", 6299, "Northstar Labs", "Checkout payment failed"),
         ],
         "revenue_shock": [
             ("invoice", "invoice_overdue", 45000, "Orion Systems", "Large invoice became overdue"),
             ("subscription", "subscription_failure", 12999, "Vertex Labs", "Enterprise renewal failed"),
             ("checkout", "checkout_failed", 15999, "Zenith Retail", "High-value checkout payment failed"),
+            ("checkout", "checkout_abandoned", 8999, "Orbit Commerce", "Checkout abandoned"),
+            ("invoice", "promise_missed", 12500, "PixelWorks", "Promise-to-pay was missed"),
         ],
     }
 
@@ -3041,9 +3111,10 @@ def simulate_revenue_autopilot():
     if not selected:
         return jsonify({"success": False, "message": "Unknown revenue simulation scenario."}), 400
 
+    run_id = f"run_{os.urandom(6).hex()}"
     created = []
     for source, event_type, amount, customer, description in selected:
-        created.append(record_revenue_event(
+        event = record_revenue_event(
             source=source,
             event_type=event_type,
             amount=amount,
@@ -3051,7 +3122,21 @@ def simulate_revenue_autopilot():
             description=description,
             status="at_risk",
             recoverable=True,
-        ))
+        )
+        event["run_id"] = run_id
+        event["scenario"] = scenario
+        created.append(event)
+
+    # Persist run metadata on the same events used by the live feed so the
+    # merchant can see exactly which signals belong to this simulation.
+    state = load_revenue_autopilot()
+    created_ids = {event.get("event_id") for event in created}
+    for event in state.get("events", []):
+        if event.get("event_id") in created_ids:
+            event["run_id"] = run_id
+            event["scenario"] = scenario
+    state = build_revenue_autopilot_state(state.get("events", []))
+    save_revenue_autopilot(state)
 
     plans = []
     for index, event in enumerate(created):
@@ -3084,11 +3169,14 @@ def simulate_revenue_autopilot():
             "action": action,
             "reason": reason,
             "amount": amount,
+            "customer": event.get("customer"),
+            "event_type": event.get("event_type"),
         })
 
     return jsonify({
         "success": True,
         "scenario": scenario,
+        "run_id": run_id,
         "events": created,
         "plan": plans,
         "state": load_revenue_autopilot(),
@@ -3121,10 +3209,21 @@ def execute_revenue_autopilot():
             if action == "RETRY_PAYMENT"
             else "Subscription payment method recovered"
         )
+        target["action_result"] = (
+            "Payment retry succeeded"
+            if action == "RETRY_PAYMENT"
+            else "Payment method recovery succeeded"
+        )
     else:
         target["status"] = "at_risk"
         target["recoverable"] = True
+        target["action_result"] = (
+            "Awaiting customer commitment"
+            if action == "REQUEST_COMMITMENT"
+            else "Escalated for merchant review"
+        )
 
+    target["last_action"] = action
     target["updated_at"] = datetime.utcnow().isoformat()
     updated = build_revenue_autopilot_state(events)
     save_revenue_autopilot(updated)

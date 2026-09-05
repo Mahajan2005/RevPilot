@@ -176,6 +176,7 @@
 .event-main { min-width: 0; }
 .event-main strong { display: block; overflow: hidden; color: #c4cfda; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .event-main span { display: block; margin-top: 4px; overflow: hidden; color: #687d91; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.event-main small { display: block; margin-top: 4px; color: #4f9bdb; font-size: 9px; font-weight: 650; text-transform: capitalize; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .event-row > b { color: #bdc9d4; font-size: 11px; font-weight: 650; }
 .event-row time { color: #5e7184; font-size: 9px; text-align: right; }
 .updated-label { color: #65798d; font-size: 10px; }
@@ -236,6 +237,7 @@
 .action-copy strong { display: block; color: #d5e0e9; font-size: 13px; }
 .action-copy p { margin: 5px 0 4px; color: #7b8ea1; font-size: 11px; line-height: 1.45; }
 .action-copy span { color: #5e7489; font-size: 10px; }
+.action-copy .action-result { display: block; margin-top: 5px; color: #36c49b; font-size: 10px; font-style: normal; font-weight: 650; }
 .action-status { min-width: 66px; padding: 7px 8px; text-align: center; border-radius: 5px; background: #151f29; color: #65788a; font-size: 8px; font-weight: 800; letter-spacing: .7px; }
 .action-status.working { background: #12314a; color: #63adf0; }
 .action-status.done { background: #0d3329; color: #37c69d; }

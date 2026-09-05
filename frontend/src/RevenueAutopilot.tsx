@@ -13,6 +13,11 @@ type RevenueEvent = {
   description: string;
   created_at?: string;
   updated_at?: string;
+  run_id?: string;
+  scenario?: ScenarioKey;
+  action_status?: "queued" | "working" | "done";
+  last_action?: string | null;
+  action_result?: string;
 };
 
 type AutopilotState = {
@@ -37,6 +42,8 @@ type PlanAction = {
   action: string;
   reason: string;
   amount: number;
+  customer?: string;
+  event_type?: string;
 };
 
 type ActionStatus = "queued" | "working" | "done";
@@ -200,6 +207,8 @@ export default function RevenueAutopilot({ onOpenRecoveryLab }: { onOpenRecovery
   const [simulationComplete, setSimulationComplete] = useState(false);
   const [simulationTitle, setSimulationTitle] = useState("");
   const [runStartedAt, setRunStartedAt] = useState<Date | null>(null);
+  const [simulationRunId, setSimulationRunId] = useState<string | null>(null);
+  const [lastSimulationRunId, setLastSimulationRunId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -245,12 +254,18 @@ export default function RevenueAutopilot({ onOpenRecoveryLab }: { onOpenRecovery
   }, [state]);
 
   const recentEvents = useMemo(() => {
-    return [...(state?.events ?? [])].sort((a, b) => {
+    const allEvents = [...(state?.events ?? [])];
+    const visibleRunId = simulationRunId ?? lastSimulationRunId;
+    const scopedEvents = visibleRunId
+      ? allEvents.filter((event) => event.run_id === visibleRunId)
+      : allEvents;
+
+    return (scopedEvents.length > 0 ? scopedEvents : allEvents).sort((a, b) => {
       const aTime = new Date(a.updated_at ?? a.created_at ?? "").getTime();
       const bTime = new Date(b.updated_at ?? b.created_at ?? "").getTime();
       return bTime - aTime;
-    }).slice(0, 7);
-  }, [state]);
+    }).slice(0, simulationRunId ? 8 : 7);
+  }, [state, simulationRunId, lastSimulationRunId]);
 
   const resetSimulation = () => {
     setRunning(false);
@@ -260,6 +275,7 @@ export default function RevenueAutopilot({ onOpenRecoveryLab }: { onOpenRecovery
     setSimulationComplete(false);
     setSimulationTitle("");
     setRunStartedAt(null);
+    setSimulationRunId(null);
   };
 
   const executeAction = async (action: PlanAction, index: number) => {
@@ -301,9 +317,11 @@ export default function RevenueAutopilot({ onOpenRecoveryLab }: { onOpenRecovery
       });
       if (!response.ok) throw new Error(`Simulation returned ${response.status}`);
 
-      const result = (await response.json()) as { success: boolean; plan?: PlanAction[]; state: AutopilotState };
+      const result = (await response.json()) as { success: boolean; plan?: PlanAction[]; state: AutopilotState; run_id?: string };
       if (!result.success || !Array.isArray(result.plan)) throw new Error("Simulation did not return a recovery plan");
 
+      setSimulationRunId(result.run_id ?? null);
+      setLastSimulationRunId(result.run_id ?? null);
       setState(result.state);
       setPlan(result.plan);
       setActionStatuses(Object.fromEntries(result.plan.map((action) => [action.action_id, "queued"])));
@@ -418,9 +436,21 @@ export default function RevenueAutopilot({ onOpenRecoveryLab }: { onOpenRecovery
         </section>
 
         <section className="autopilot-panel event-panel">
-          <div className="autopilot-panel-header"><div><h3>Live recovery events</h3><p>Latest signals flowing into Autopilot</p></div>{lastUpdated && <span className="updated-label">Updated {lastUpdated.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>}</div>
+          <div className="autopilot-panel-header"><div><h3>Live recovery events</h3><p>{lastSimulationRunId ? "Signals and outcomes from the latest Autopilot run" : "Latest signals flowing into Autopilot"}</p></div>{lastUpdated && <span className="updated-label">Updated {lastUpdated.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>}</div>
           <div className="event-list">
-            {recentEvents.length === 0 ? <div className="empty-autopilot">No revenue events yet.</div> : recentEvents.map((event) => <div className="event-row" key={event.event_id}><span className={`event-dot ${event.status === "recovered" ? "recovered" : event.status === "completed" ? "completed" : "risk"}`} /><div className="event-main"><strong>{event.description}</strong><span>{event.customer} · {formatEventType(event.event_type)}</span></div><b>{formatRupees(event.amount)}</b><time>{formatTime(event.updated_at ?? event.created_at)}</time></div>)}
+            {recentEvents.length === 0 ? <div className="empty-autopilot">No revenue events yet.</div> : recentEvents.map((event) => {
+              const enrichedEvent = event;
+              return <div className="event-row" key={event.event_id}>
+                <span className={`event-dot ${event.status === "recovered" ? "recovered" : event.status === "completed" ? "completed" : "risk"}`} />
+                <div className="event-main">
+                  <strong>{event.description}</strong>
+                  <span>{event.customer} · {formatEventType(event.event_type)}</span>
+                  {enrichedEvent.last_action && <small>{enrichedEvent.last_action.replaceAll("_", " ")} · {enrichedEvent.action_result ?? "Processing"}</small>}
+                </div>
+                <b>{formatRupees(event.amount)}</b>
+                <time>{event.status === "recovered" ? "Recovered" : event.status === "at_risk" ? "At risk" : "Complete"} · {formatTime(event.updated_at ?? event.created_at)}</time>
+              </div>;
+            })}
           </div>
         </section>
       </div>
@@ -461,7 +491,7 @@ export default function RevenueAutopilot({ onOpenRecoveryLab }: { onOpenRecovery
               <section className="simulation-card action-card">
                 <div className="simulation-card-header"><div><span>AGENT ACTIONS</span><h2>Recovery plan</h2></div><span className="card-live"><i /> LIVE</span></div>
                 <div className="action-list">
-                  {plan.length === 0 ? <div className="action-empty"><div className="scanner" /><strong>Scanning revenue signals…</strong><span>Looking for unusual exposure</span></div> : plan.map((action, index) => { const status = actionStatuses[action.action_id] ?? "queued"; return <div className={`action-row ${status}`} key={action.action_id}><div className="action-number">{String(index + 1).padStart(2, "0")}</div><div className="action-copy"><strong>{action.title}</strong><p>{action.reason}</p><span>{formatRupees(action.amount)} exposure</span></div><div className={`action-status ${status}`}>{status === "working" ? "WORKING" : status === "done" ? "DONE" : "QUEUED"}</div></div>; })}
+                  {plan.length === 0 ? <div className="action-empty"><div className="scanner" /><strong>Scanning revenue signals…</strong><span>Looking for unusual exposure</span></div> : plan.map((action, index) => { const status = actionStatuses[action.action_id] ?? "queued"; return <div className={`action-row ${status}`} key={action.action_id}><div className="action-number">{String(index + 1).padStart(2, "0")}</div><div className="action-copy"><strong>{action.title}</strong><p>{action.reason}</p><span>{action.customer ?? "Account"} · {formatRupees(action.amount)} exposure</span>{(() => { const event = state?.events.find((item) => item.event_id === action.event_id); return event?.action_result ? <em className="action-result">{event.action_result}</em> : null; })()}</div><div className={`action-status ${status}`}>{status === "working" ? "WORKING" : status === "done" ? "DONE" : "QUEUED"}</div></div>; })}
                 </div>
               </section>
 

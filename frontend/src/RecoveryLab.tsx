@@ -550,6 +550,7 @@ export default function RecoveryLab({
                 ? cart.map((item) => ({
                     id: item.id,
                     name: item.name,
+                    description: item.description,
                     quantity: item.quantity,
                     price: item.price,
                   }))
@@ -902,6 +903,7 @@ export default function RecoveryLab({
                 cart: cart.map((item) => ({
                   id: item.id,
                   name: item.name,
+                  description: item.description,
                   quantity: item.quantity,
                   price: item.price,
                 })),
@@ -1677,6 +1679,17 @@ export default function RecoveryLab({
                     how the agent can recover
                     lost revenue.
                   </p>
+
+                  <button
+                    className="checkout-refresh-button"
+                    type="button"
+                    disabled={paymentLoading}
+                    onClick={resetCheckout}
+                    title="Clear the saved checkout and start fresh"
+                  >
+                    <span aria-hidden="true">↻</span>
+                    Start fresh checkout
+                  </button>
 
                 </div>
 

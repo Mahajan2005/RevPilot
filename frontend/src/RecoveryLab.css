@@ -338,6 +338,43 @@
   line-height: 1.6;
 }
 
+.checkout-refresh-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 14px;
+  border: 1px solid #e1e3e8;
+  background: #ffffff;
+  color: #676c78;
+  border-radius: 9px;
+  padding: 8px 11px;
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.checkout-refresh-button span {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.checkout-refresh-button:hover:not(:disabled) {
+  border-color: #c9cbd2;
+  background: #fafafa;
+  color: #2b2e36;
+  transform: translateY(-1px);
+}
+
+.checkout-refresh-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .simulation-label {
   color: #7168dc;
   font-size: 9px;
