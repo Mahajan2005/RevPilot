@@ -54,6 +54,7 @@ razorpay_client = (
 DATA_DIR = os.path.join(BASE_DIR, "data")
 DATA_FILE = os.path.join(DATA_DIR, "payments.json")
 RECOVERY_LOG_FILE = os.path.join(DATA_DIR, "recovery_log.json")
+REVENUE_AUTOPILOT_FILE = os.path.join(DATA_DIR, "revenue_autopilot.json")
 
 MAX_RETRIES = 2
 
@@ -221,6 +222,236 @@ def save_recovery_log(log):
         json.dump(log, file, indent=2)
 
 
+# =========================================================
+# REVENUE AUTOPILOT STATE
+# =========================================================
+
+AUTOPILOT_SEED_EVENTS = [
+    {
+        "event_id": "seed_checkout_001",
+        "payment_id": "autopilot_checkout_001",
+        "source": "checkout",
+        "event_type": "checkout_failed",
+        "customer": "Nova Technologies",
+        "amount": 4999,
+        "status": "at_risk",
+        "recoverable": True,
+        "description": "Checkout payment failed",
+    },
+    {
+        "event_id": "seed_checkout_002",
+        "payment_id": "autopilot_checkout_002",
+        "source": "checkout",
+        "event_type": "checkout_abandoned",
+        "customer": "Acme Systems",
+        "amount": 2499,
+        "status": "at_risk",
+        "recoverable": True,
+        "description": "Checkout abandoned",
+    },
+    {
+        "event_id": "seed_subscription_001",
+        "payment_id": "autopilot_subscription_001",
+        "source": "subscription",
+        "event_type": "subscription_failure",
+        "customer": "Vertex Labs",
+        "amount": 1499,
+        "status": "at_risk",
+        "recoverable": True,
+        "description": "Subscription renewal failed",
+    },
+    {
+        "event_id": "seed_subscription_002",
+        "payment_id": "autopilot_subscription_002",
+        "source": "subscription",
+        "event_type": "subscription_failure",
+        "customer": "BrightDesk",
+        "amount": 3999,
+        "status": "at_risk",
+        "recoverable": True,
+        "description": "Subscription payment method needs attention",
+    },
+    {
+        "event_id": "seed_invoice_001",
+        "payment_id": "autopilot_invoice_001",
+        "source": "invoice",
+        "event_type": "invoice_overdue",
+        "customer": "Orion Systems",
+        "amount": 28000,
+        "status": "at_risk",
+        "recoverable": True,
+        "description": "Invoice became overdue",
+    },
+    {
+        "event_id": "seed_invoice_002",
+        "payment_id": "autopilot_invoice_002",
+        "source": "invoice",
+        "event_type": "promise_missed",
+        "customer": "PixelWorks",
+        "amount": 12500,
+        "status": "at_risk",
+        "recoverable": True,
+        "description": "Promise-to-pay was missed",
+    },
+    {
+        "event_id": "seed_checkout_003",
+        "payment_id": "autopilot_checkout_003",
+        "source": "checkout",
+        "event_type": "checkout_success",
+        "customer": "Zenith Retail",
+        "amount": 7499,
+        "status": "recovered",
+        "recoverable": False,
+        "description": "Checkout payment recovered",
+    },
+]
+
+AUTOPILOT_BASE_EXPECTED_REVENUE = 184200
+
+
+def save_revenue_autopilot(state):
+    ensure_data_directory()
+
+    with open(REVENUE_AUTOPILOT_FILE, "w") as file:
+        json.dump(state, file, indent=2)
+
+
+def build_revenue_autopilot_state(events=None):
+    events = events if isinstance(events, list) else []
+
+    at_risk = sum(
+        float(event.get("amount", 0) or 0)
+        for event in events
+        if event.get("status") == "at_risk"
+    )
+
+    recoverable = sum(
+        float(event.get("amount", 0) or 0)
+        for event in events
+        if event.get("status") == "at_risk"
+        and event.get("recoverable") is True
+    )
+
+    recovered = sum(
+        float(event.get("amount", 0) or 0)
+        for event in events
+        if event.get("status") == "recovered"
+    )
+
+    return {
+        "expected_revenue": AUTOPILOT_BASE_EXPECTED_REVENUE,
+        "revenue_at_risk": round(at_risk, 2),
+        "recoverable_revenue": round(recoverable, 2),
+        "recovered_revenue": round(recovered, 2),
+        "events": events,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+
+
+def load_revenue_autopilot():
+    ensure_data_directory()
+
+    if not os.path.exists(REVENUE_AUTOPILOT_FILE):
+        state = build_revenue_autopilot_state(
+            deepcopy(AUTOPILOT_SEED_EVENTS)
+        )
+        save_revenue_autopilot(state)
+        return state
+
+    try:
+        with open(REVENUE_AUTOPILOT_FILE, "r") as file:
+            state = json.load(file)
+
+        if not isinstance(state, dict):
+            raise ValueError("Invalid Revenue Autopilot state")
+
+        events = state.get("events", [])
+        if not isinstance(events, list):
+            events = []
+
+        return build_revenue_autopilot_state(events)
+
+    except (json.JSONDecodeError, OSError, ValueError):
+        state = build_revenue_autopilot_state(
+            deepcopy(AUTOPILOT_SEED_EVENTS)
+        )
+        save_revenue_autopilot(state)
+        return state
+
+
+def reset_revenue_autopilot():
+    state = build_revenue_autopilot_state(
+        deepcopy(AUTOPILOT_SEED_EVENTS)
+    )
+    save_revenue_autopilot(state)
+    return state
+
+
+def record_revenue_event(
+    source,
+    event_type,
+    amount,
+    payment_id=None,
+    customer=None,
+    description=None,
+    status="at_risk",
+    recoverable=True,
+):
+    state = load_revenue_autopilot()
+    events = state.get("events", [])
+
+    now = datetime.utcnow().isoformat()
+
+    # A real payment can move from failed -> recovered. Reuse its
+    # existing Autopilot event instead of creating a duplicate.
+    if payment_id:
+        for event in reversed(events):
+            if event.get("payment_id") == payment_id:
+                previous_status = event.get("status")
+                next_status = status
+
+                # A payment that was previously at risk and then
+                # succeeds is a recovered payment. A first-time
+                # successful checkout is simply completed revenue.
+                if (
+                    previous_status == "at_risk"
+                    and status == "completed"
+                ):
+                    next_status = "recovered"
+
+                event.update({
+                    "source": source,
+                    "event_type": event_type,
+                    "amount": float(amount or 0),
+                    "customer": customer or event.get("customer"),
+                    "description": description or event.get("description"),
+                    "status": next_status,
+                    "recoverable": bool(recoverable),
+                    "updated_at": now,
+                })
+                state = build_revenue_autopilot_state(events)
+                save_revenue_autopilot(state)
+                return event
+
+    event = {
+        "event_id": f"evt_{os.urandom(6).hex()}",
+        "payment_id": payment_id,
+        "source": source,
+        "event_type": event_type,
+        "customer": customer or "Demo customer",
+        "amount": float(amount or 0),
+        "status": status,
+        "recoverable": bool(recoverable),
+        "description": description or event_type.replace("_", " ").title(),
+        "created_at": now,
+    }
+
+    events.append(event)
+    state = build_revenue_autopilot_state(events)
+    save_revenue_autopilot(state)
+    return event
+
+
 def reset_demo_data():
     """
     Merchant activity starts empty.
@@ -233,6 +464,7 @@ def reset_demo_data():
 
     save_payments(payments)
     save_recovery_log([])
+    reset_revenue_autopilot()
 
     return payments
 
@@ -268,6 +500,12 @@ def build_cart_summary(payment):
                 or item.get("title")
                 or "Product"
             ),
+            "description": (
+                item.get("description")
+                or item.get("subtitle")
+                or ""
+            ),
+            "badge": item.get("badge") or "",
             "quantity": item.get("quantity", 1),
             "price": (
                 item.get("price")
@@ -438,22 +676,26 @@ def generate_checkout_recovery(payment):
     if isinstance(cart, list):
         for item in cart:
             try:
-                item_count += int(
-                    item.get("quantity", 1)
-                )
+                item_count += int(item.get("quantity", 1))
             except (TypeError, ValueError):
                 item_count += 1
 
     cart_summary = build_cart_summary(payment)
 
     prompt = f"""
-You are a checkout recovery agent for an ecommerce store.
+You are an ecommerce revenue recovery specialist.
 
-A customer started checkout but abandoned it before payment.
+A high-intent customer reached checkout but did not complete payment.
+Your goal is to create the most compelling truthful reason for them to
+return and finish the purchase.
 
-Decide the most appropriate, NON-PUSHY way to bring the customer back.
+This is NOT a generic reminder. Treat the cart like a real shopping
+conversation: understand what the customer chose, surface a useful
+benefit of the actual product, remove friction, and give them a clear
+next step.
 
 CUSTOMER CHECKOUT DATA
+----------------------
 
 Cart value: ₹{amount}
 Number of items: {item_count}
@@ -461,44 +703,70 @@ Number of items: {item_count}
 Cart items:
 {json.dumps(cart_summary, ensure_ascii=False)}
 
-RULES
+RECOVERY GOAL
+-------------
 
-1. Do not mention AI, agents, models, algorithms, prediction,
-   backend systems, or merchant dashboards.
+Maximize the probability of a completed purchase while staying truthful.
+The customer already showed purchase intent by reaching checkout.
 
-2. The customer should receive a natural, thoughtful message
-   from the store.
+MESSAGE RULES
+-------------
 
-3. Do not invent discounts, coupons, free shipping, stock
-   scarcity, deadlines, or benefits.
+1. Write a message that feels written specifically for THIS cart.
+2. Mention the most relevant product or products by their real names.
+3. Use the real product description/attributes supplied above when useful.
+4. Lead with a genuine product benefit, convenience, or the fact that the
+   cart is saved — whichever is most persuasive from the supplied data.
+5. Make the next step obvious and low-friction.
+6. Make the copy warm, concise, and conversion-oriented.
+7. Avoid generic phrases such as "your cart is waiting" unless they are
+   combined with something specific from the cart.
+8. Do not repeat a fixed template. Vary the opening and phrasing based on
+   the cart contents.
+9. Never invent discounts, coupons, free shipping, stock scarcity,
+   deadlines, rewards, guarantees, reviews, or product benefits that are
+   not present in the supplied data.
+10. Never guilt-trip or pressure the customer.
+11. Do not mention AI, agents, models, algorithms, dashboards, or internal
+    systems.
+12. Keep customer_message to 1-3 short sentences.
+13. customer_title should be specific and attractive, not generic.
 
-4. Do not guilt-trip the customer.
+CONVERSION GUIDANCE
+-------------------
 
-5. Keep the message short and human.
+- For one strong product: spotlight its actual benefit and invite the
+  customer to finish checkout.
+- For multiple products: mention the strongest or most distinctive item,
+  while acknowledging the saved cart.
+- For a low-friction purchase: use a simple, confident return-to-checkout
+  invitation.
+- If the cart information is sparse: focus on the saved cart and easy
+  completion rather than inventing product claims.
 
-6. Base the message on the actual cart.
+CHOOSE ONE CUSTOMER ACTION
+--------------------------
 
-7. Choose ONE suggested action:
-   RETURN_TO_CHECKOUT
-   KEEP_CART_SAVED
-   ABANDON
+RETURN_TO_CHECKOUT
+The customer appears to have strong purchase intent and should be brought
+back to checkout immediately.
 
-8. Prefer RETURN_TO_CHECKOUT when purchase intent is strong.
+KEEP_CART_SAVED
+The customer may need more time. Preserve the cart and make returning easy.
 
-9. Use KEEP_CART_SAVED when the customer may simply need more time.
-
-10. Use ABANDON only when recovery would clearly be inappropriate.
+ABANDON
+Use only when recovery would clearly be inappropriate.
 
 Return ONLY valid JSON:
 
 {{
   "decision": "RE_ENGAGE",
   "action": "short internal action description",
-  "reason": "short internal reason",
-  "customer_title": "short customer-facing title",
-  "customer_message": "natural customer-facing message",
+  "reason": "short internal reason based on the cart",
+  "customer_title": "specific attractive customer-facing title",
+  "customer_message": "1-3 sentence persuasive customer-facing message",
   "suggested_action": "RETURN_TO_CHECKOUT",
-  "suggested_action_label": "short button label"
+  "suggested_action_label": "short clear button label"
 }}
 """
 
@@ -509,8 +777,10 @@ Return ONLY valid JSON:
                 {
                     "role": "system",
                     "content": (
-                        "You are a careful ecommerce recovery "
-                        "decision engine. Return valid JSON only."
+                        "You are a high-converting but truthful ecommerce "
+                        "recovery decision engine. Personalize every message "
+                        "from the supplied cart. Never invent offers or facts. "
+                        "Return valid JSON only."
                     ),
                 },
                 {
@@ -518,15 +788,13 @@ Return ONLY valid JSON:
                     "content": prompt,
                 },
             ],
-            temperature=0.7,
+            temperature=0.9,
             max_completion_tokens=800,
             response_format={"type": "json_object"},
         )
 
         result = json.loads(
-            clean_llm_json(
-                response.choices[0].message.content
-            )
+            clean_llm_json(response.choices[0].message.content)
         )
 
         required_fields = [
@@ -541,18 +809,14 @@ Return ONLY valid JSON:
 
         for field in required_fields:
             if not result.get(field):
-                raise ValueError(
-                    f"Missing LLM field: {field}"
-                )
+                raise ValueError(f"Missing LLM field: {field}")
 
         if result["suggested_action"] not in {
             "RETURN_TO_CHECKOUT",
             "KEEP_CART_SAVED",
             "ABANDON",
         }:
-            raise ValueError(
-                "Unsupported checkout customer action."
-            )
+            raise ValueError("Unsupported checkout customer action.")
 
         return result
 
@@ -568,23 +832,186 @@ Return ONLY valid JSON:
 # =========================================================
 
 def generate_subscription_recovery(payment):
-    return {
-        "decision": "UPDATE_PAYMENT_METHOD",
-        "action": "Ask customer to update or retry payment",
-        "reason": (
-            "The recurring renewal failed. The safest recovery "
-            "path is to notify the customer and let them resolve "
-            "the payment issue."
-        ),
-        "customer_title": "Your subscription needs attention",
-        "customer_message": (
-            "Your Pro Workspace renewal didn't go through. "
-            "Update your payment method or try again to keep "
-            "your plan active."
-        ),
-        "suggested_action": "UPDATE_PAYMENT_METHOD",
-        "suggested_action_label": "Fix payment",
-    }
+    """
+    Use the subscriber's renewal history to choose a context-aware
+    recovery strategy instead of returning the same decision for every
+    failed renewal.
+    """
+    if not groq_client:
+        raise RuntimeError(
+            "Groq is not configured; the recovery agent cannot "
+            "analyze the subscription failure."
+        )
+
+    subscription = payment.get("subscription") or {}
+
+    plan_name = subscription.get("plan_name") or "subscription"
+    amount = subscription.get("amount", payment.get("amount", 0))
+    billing_cycle = subscription.get("billing_cycle") or "billing cycle"
+    payment_method = subscription.get("payment_method") or "unknown"
+    successful_renewals = subscription.get("successful_renewals", 0)
+    previous_failures = subscription.get("previous_failed_renewals", 0)
+    previous_recovery_attempts = subscription.get(
+        "previous_recovery_attempts", 0
+    )
+    attempt_count = subscription.get("attempt_count", 1)
+    renewal_due_at = subscription.get("renewal_due_at") or "today"
+
+    prompt = f"""
+You are an autonomous subscription revenue recovery agent.
+
+A customer's recurring subscription renewal has failed. Decide the
+BEST NEXT recovery action using the customer's actual renewal history.
+Do not give the same recommendation to every subscriber.
+
+SUBSCRIPTION CONTEXT
+--------------------
+Plan: {plan_name}
+Amount: ₹{amount}
+Billing cycle: {billing_cycle}
+Payment method: {payment_method}
+Renewal due: {renewal_due_at}
+Successful renewals: {successful_renewals}
+Previous failed renewals: {previous_failures}
+Previous recovery attempts: {previous_recovery_attempts}
+Current failed attempt: #{attempt_count}
+
+DECISION LOGIC
+--------------
+
+1. LOYAL / CLEAN HISTORY
+If the subscriber has many successful renewals, no previous failures,
+and no recovery attempts, prefer a low-friction action such as RETRY_PAYMENT.
+Do not create unnecessary friction for a normally reliable customer.
+
+2. SOME PAYMENT FRICTION
+If there are a few previous failures or one previous recovery attempt,
+consider UPDATE_PAYMENT_METHOD or RETRY_PAYMENT depending on the evidence.
+Avoid blindly repeating the same path.
+
+3. REPEATED FAILURE / RECOVERY FATIGUE
+If failures and recovery attempts are repeated, become more conservative.
+Prefer UPDATE_PAYMENT_METHOD, CONTACT_CUSTOMER, or MANUAL_REVIEW rather
+than endlessly retrying the same payment path.
+
+4. ATTEMPT COUNT MATTERS
+The current attempt number should influence the decision. A later attempt
+should generally require stronger evidence before another automatic retry.
+
+5. NO INVENTED CAUSES
+The supplied history does not prove why the payment failed. Do not invent
+an expired card, insufficient funds, bank outage, or any other cause.
+
+AVAILABLE STRATEGIES
+--------------------
+
+RETRY_PAYMENT
+Ask the customer to try the renewal payment again now.
+
+UPDATE_PAYMENT_METHOD
+Ask the customer to update or replace the payment method before retrying.
+
+CONTACT_CUSTOMER
+Ask the customer to contact the merchant/support because repeated friction
+makes another automatic attempt less appropriate.
+
+MANUAL_REVIEW
+Escalate for merchant review when automated recovery is not sufficiently safe.
+
+CUSTOMER MESSAGE RULES
+----------------------
+
+The customer-facing message must:
+- sound natural and specific to the subscription;
+- mention the real plan name;
+- explain the useful next step clearly;
+- be calm and non-blaming;
+- preserve the value of keeping the subscription active;
+- avoid unsupported claims about the failure;
+- never invent discounts, penalties, urgency, scarcity, rewards, or causes;
+- never mention AI, agents, models, algorithms, dashboards, or internal systems;
+- avoid using the exact same wording for every scenario.
+
+BUTTON LABELS
+-------------
+RETRY_PAYMENT -> "Try renewal again"
+UPDATE_PAYMENT_METHOD -> "Update payment method"
+CONTACT_CUSTOMER -> "Contact support"
+MANUAL_REVIEW -> "Continue"
+
+Return ONLY valid JSON:
+
+{{
+  "decision": "one recovery strategy",
+  "action": "short internal description",
+  "reason": "short evidence-based explanation",
+  "customer_title": "short natural title",
+  "customer_message": "short personalized customer-facing message",
+  "suggested_action": "same recovery strategy",
+  "suggested_action_label": "matching button label"
+}}
+"""
+
+    try:
+        response = groq_client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a careful subscription revenue recovery "
+                        "decision engine. Adapt the strategy to renewal history, "
+                        "avoid invented causes, and return valid JSON only."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                },
+            ],
+            temperature=0.5,
+            max_completion_tokens=800,
+            response_format={"type": "json_object"},
+        )
+
+        result = json.loads(
+            clean_llm_json(response.choices[0].message.content)
+        )
+
+        required_fields = [
+            "decision",
+            "action",
+            "reason",
+            "customer_title",
+            "customer_message",
+            "suggested_action",
+            "suggested_action_label",
+        ]
+
+        for field in required_fields:
+            if not result.get(field):
+                raise ValueError(f"Missing LLM field: {field}")
+
+        allowed = {
+            "RETRY_PAYMENT",
+            "UPDATE_PAYMENT_METHOD",
+            "CONTACT_CUSTOMER",
+            "MANUAL_REVIEW",
+        }
+
+        if result["decision"] not in allowed:
+            raise ValueError("Unsupported subscription recovery strategy.")
+
+        if result["suggested_action"] not in allowed:
+            raise ValueError("Unsupported subscription customer action.")
+
+        return result
+
+    except Exception as error:
+        print("Subscription recovery LLM error:", error)
+        raise RuntimeError(
+            "The recovery agent could not analyze the subscription failure."
+        ) from error
 
 
 # =========================================================
@@ -1400,6 +1827,15 @@ def get_payments():
 
 
 # =========================================================
+# REVENUE AUTOPILOT
+# =========================================================
+
+@app.route("/revenue-autopilot", methods=["GET"])
+def get_revenue_autopilot():
+    return jsonify(load_revenue_autopilot())
+
+
+# =========================================================
 # CREATE REAL RAZORPAY ORDER
 # =========================================================
 
@@ -1701,6 +2137,17 @@ def razorpay_payment_result():
 
         upsert_payment(payment)
 
+        record_revenue_event(
+            source="checkout",
+            event_type="checkout_success",
+            amount=payment.get("amount", 0),
+            payment_id=payment.get("payment_id"),
+            customer=payment.get("customer_id"),
+            description="Checkout payment completed",
+            status="completed",
+            recoverable=False,
+        )
+
         return jsonify({
             "success": True,
             "payment": payment,
@@ -1862,6 +2309,17 @@ def razorpay_payment_result():
         payment,
         agent_result,
         "razorpay"
+    )
+
+    record_revenue_event(
+        source="checkout",
+        event_type="checkout_failed",
+        amount=payment.get("amount", 0),
+        payment_id=payment.get("payment_id"),
+        customer=payment.get("customer_id"),
+        description="Checkout payment failed",
+        status="at_risk",
+        recoverable=True,
     )
 
     return jsonify({
@@ -2163,6 +2621,17 @@ def lab_simulate():
             "checkout_abandonment"
         )
 
+    if event_type == "subscription_failure":
+        subscription_payload = payload.get("subscription", {})
+
+        if not isinstance(subscription_payload, dict):
+            return jsonify({
+                "success": False,
+                "message": "subscription must be an object.",
+            }), 400
+
+        payment["subscription"] = subscription_payload
+
     if event_type == "promise_missed":
         payment["promise"] = promise
 
@@ -2223,6 +2692,27 @@ def lab_simulate():
         payment,
         agent_result,
         event_config["source"]
+    )
+
+    autopilot_source = {
+        "checkout_abandonment": "checkout",
+        "subscription_failure": "subscription",
+        "promise_missed": "invoice",
+    }[event_type]
+
+    record_revenue_event(
+        source=autopilot_source,
+        event_type=event_type,
+        amount=payment.get("amount", 0),
+        payment_id=payment.get("payment_id"),
+        customer=payment.get("customer_id"),
+        description={
+            "checkout_abandonment": "Checkout abandoned",
+            "subscription_failure": "Subscription renewal failed",
+            "promise_missed": "Promise-to-pay was missed",
+        }[event_type],
+        status="at_risk",
+        recoverable=True,
     )
 
     return jsonify({
@@ -2512,6 +3002,138 @@ def run_agent():
             "recovered": len(recovered),
             "needs_attention": len(at_risk),
         },
+    })
+
+
+# =========================================================
+# REVENUE AUTOPILOT SIMULATIONS
+# =========================================================
+
+@app.route("/revenue-autopilot/simulate", methods=["POST"])
+def simulate_revenue_autopilot():
+    payload = request.get_json(silent=True) or {}
+    scenario = payload.get("scenario", "payment_failure_spike")
+
+    scenarios = {
+        "payment_failure_spike": [
+            ("checkout", "checkout_failed", 6999, "Acme Systems", "Checkout payment failed"),
+            ("checkout", "checkout_failed", 3499, "Northstar Labs", "Checkout payment failed"),
+            ("checkout", "checkout_abandoned", 5299, "PixelWorks", "Checkout abandoned"),
+        ],
+        "renewal_day": [
+            ("subscription", "subscription_failure", 2499, "Nova Technologies", "Subscription renewal failed"),
+            ("subscription", "subscription_failure", 7999, "BrightDesk", "Subscription payment method needs attention"),
+            ("subscription", "subscription_failure", 4499, "Vertex Labs", "Subscription renewal failed"),
+        ],
+        "checkout_dropoff": [
+            ("checkout", "checkout_abandoned", 8999, "Orbit Commerce", "High-intent checkout abandoned"),
+            ("checkout", "checkout_abandoned", 4499, "Acme Systems", "Checkout abandoned"),
+            ("checkout", "checkout_failed", 11999, "Nova Technologies", "Checkout payment failed"),
+        ],
+        "revenue_shock": [
+            ("invoice", "invoice_overdue", 45000, "Orion Systems", "Large invoice became overdue"),
+            ("subscription", "subscription_failure", 12999, "Vertex Labs", "Enterprise renewal failed"),
+            ("checkout", "checkout_failed", 15999, "Zenith Retail", "High-value checkout payment failed"),
+        ],
+    }
+
+    selected = scenarios.get(scenario)
+    if not selected:
+        return jsonify({"success": False, "message": "Unknown revenue simulation scenario."}), 400
+
+    created = []
+    for source, event_type, amount, customer, description in selected:
+        created.append(record_revenue_event(
+            source=source,
+            event_type=event_type,
+            amount=amount,
+            customer=customer,
+            description=description,
+            status="at_risk",
+            recoverable=True,
+        ))
+
+    plans = []
+    for index, event in enumerate(created):
+        source = event.get("source")
+        amount = float(event.get("amount", 0) or 0)
+        if source == "checkout":
+            action = "RETRY_PAYMENT"
+            title = "Recover checkout payment"
+            reason = "Fresh payment intent makes an immediate retry the highest-value move."
+        elif source == "subscription":
+            action = "UPDATE_PAYMENT_METHOD"
+            title = "Protect recurring revenue"
+            reason = "Renewal risk is high; payment-method recovery is the next best action."
+        else:
+            action = "REQUEST_COMMITMENT"
+            title = "Re-engage overdue account"
+            reason = "Invoice risk needs a customer commitment before escalation."
+        if scenario == "revenue_shock" and index == len(created) - 1:
+            action = "MANUAL_REVIEW"
+            title = "Escalate high-value exception"
+            reason = "The amount and mixed signals make human review safer than blind automation."
+        if scenario == "renewal_day" and index == len(created) - 1:
+            action = "MANUAL_REVIEW"
+            title = "Review renewal exception"
+            reason = "Multiple renewal failures require a controlled recovery decision."
+        plans.append({
+            "action_id": f"action_{event.get('event_id')}",
+            "event_id": event.get("event_id"),
+            "title": title,
+            "action": action,
+            "reason": reason,
+            "amount": amount,
+        })
+
+    return jsonify({
+        "success": True,
+        "scenario": scenario,
+        "events": created,
+        "plan": plans,
+        "state": load_revenue_autopilot(),
+    })
+
+
+@app.route("/revenue-autopilot/execute", methods=["POST"])
+def execute_revenue_autopilot():
+    payload = request.get_json(silent=True) or {}
+    event_id = payload.get("event_id")
+    action = payload.get("action", "MANUAL_REVIEW")
+
+    if not event_id:
+        return jsonify({"success": False, "message": "Missing event_id."}), 400
+
+    state = load_revenue_autopilot()
+    events = state.get("events", [])
+    target = next((event for event in events if event.get("event_id") == event_id), None)
+
+    if target is None:
+        return jsonify({"success": False, "message": "Revenue event not found."}), 404
+
+    # This is the demo decision layer: high-confidence checkout/subscription
+    # actions recover automatically; invoice/manual-review actions stay exposed.
+    if action in {"RETRY_PAYMENT", "UPDATE_PAYMENT_METHOD"}:
+        target["status"] = "recovered"
+        target["recoverable"] = False
+        target["description"] = (
+            "Checkout payment recovered"
+            if action == "RETRY_PAYMENT"
+            else "Subscription payment method recovered"
+        )
+    else:
+        target["status"] = "at_risk"
+        target["recoverable"] = True
+
+    target["updated_at"] = datetime.utcnow().isoformat()
+    updated = build_revenue_autopilot_state(events)
+    save_revenue_autopilot(updated)
+
+    return jsonify({
+        "success": True,
+        "action": action,
+        "event": target,
+        "state": updated,
     })
 
 

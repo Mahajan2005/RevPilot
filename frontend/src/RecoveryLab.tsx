@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./RecoveryLab.css";
 import SubscriptionRecovery from "./SubscriptionRecovery";
 import PromiseToPay from "./PromiseToPay";
@@ -214,26 +214,90 @@ function loadRazorpayScript(): Promise<boolean> {
   });
 }
 
+type PersistedCheckoutSession = {
+  mode: Mode;
+  stage: Stage;
+  cart: CartItem[];
+  couponApplied: boolean;
+  customerIntervention: CustomerIntervention | null;
+  checkoutCustomerAction:
+    | "RETURN_TO_CHECKOUT"
+    | "KEEP_CART_SAVED"
+    | "ABANDON"
+    | null;
+  checkoutError: string;
+  checkoutPaymentId: string | null;
+  paymentFailure: boolean;
+  paymentFailureReason: string;
+};
+
+const CHECKOUT_SESSION_STORAGE_KEY =
+  "recovery_lab_active_checkout";
+
 export default function RecoveryLab({
   onBack,
 }: RecoveryLabProps) {
+  const [restoredCheckoutSession] =
+    useState<PersistedCheckoutSession | null>(() => {
+      try {
+        const raw = window.localStorage.getItem(
+          CHECKOUT_SESSION_STORAGE_KEY
+        );
+
+        if (!raw) {
+          return null;
+        }
+
+        const parsed =
+          JSON.parse(raw) as PersistedCheckoutSession;
+
+        if (
+          !parsed ||
+          parsed.mode !== "checkout" ||
+          !Array.isArray(parsed.cart) ||
+          parsed.cart.length === 0 ||
+          !parsed.checkoutPaymentId
+        ) {
+          return null;
+        }
+
+        return parsed;
+      } catch (error) {
+        console.error(
+          "Could not restore checkout session:",
+          error
+        );
+        return null;
+      }
+    });
+
   const [mode, setMode] =
-    useState<Mode>("checkout");
+    useState<Mode>(
+      restoredCheckoutSession?.mode || "checkout"
+    );
 
   const [stage, setStage] =
-    useState<Stage>("shop");
+    useState<Stage>(
+      restoredCheckoutSession?.stage || "shop"
+    );
 
   const [cart, setCart] =
-    useState<CartItem[]>([]);
+    useState<CartItem[]>(
+      restoredCheckoutSession?.cart || []
+    );
 
   const [favorites, setFavorites] =
     useState<number[]>([]);
 
   const [couponApplied, setCouponApplied] =
-    useState(false);
+    useState(
+      restoredCheckoutSession?.couponApplied || false
+    );
 
   const [customerIntervention, setCustomerIntervention] =
-    useState<CustomerIntervention | null>(null);
+    useState<CustomerIntervention | null>(
+      restoredCheckoutSession?.customerIntervention || null
+    );
 
   const [checkoutCustomerAction, setCheckoutCustomerAction] =
     useState<
@@ -241,16 +305,24 @@ export default function RecoveryLab({
       | "KEEP_CART_SAVED"
       | "ABANDON"
       | null
-    >(null);
+    >(
+      restoredCheckoutSession?.checkoutCustomerAction ||
+        null
+    );
 
   const [checkoutError, setCheckoutError] =
-    useState("");
+    useState(
+      restoredCheckoutSession?.checkoutError || ""
+    );
 
   const [agentRunning, setAgentRunning] =
     useState(false);
 
   const [checkoutPaymentId, setCheckoutPaymentId] =
-    useState<string | null>(null);
+    useState<string | null>(
+      restoredCheckoutSession?.checkoutPaymentId ||
+        null
+    );
 
   const [paymentLoading, setPaymentLoading] =
     useState(false);
@@ -259,10 +331,15 @@ export default function RecoveryLab({
     useState(false);
 
   const [paymentFailure, setPaymentFailure] =
-    useState(false);
+    useState(
+      restoredCheckoutSession?.paymentFailure || false
+    );
 
   const [paymentFailureReason, setPaymentFailureReason] =
-    useState("");
+    useState(
+      restoredCheckoutSession?.paymentFailureReason ||
+        ""
+    );
 
   /*
    * IMPORTANT
@@ -281,6 +358,62 @@ export default function RecoveryLab({
    */
   const razorpayFailureHandledRef =
     useRef(false);
+
+  // =====================================================
+  // PERSIST ACTIVE CHECKOUT
+  // =====================================================
+  //
+  // Recovery Lab unmounts when the merchant goes back to
+  // the dashboard. Persist the unfinished checkout so the
+  // exact cart/payment session can be resumed later.
+  //
+  useEffect(() => {
+    if (
+      mode !== "checkout" ||
+      cart.length === 0 ||
+      !checkoutPaymentId ||
+      paymentSuccess
+    ) {
+      return;
+    }
+
+    const session: PersistedCheckoutSession = {
+      mode,
+      stage,
+      cart,
+      couponApplied,
+      customerIntervention,
+      checkoutCustomerAction,
+      checkoutError,
+      checkoutPaymentId,
+      paymentFailure,
+      paymentFailureReason,
+    };
+
+    try {
+      window.localStorage.setItem(
+        CHECKOUT_SESSION_STORAGE_KEY,
+        JSON.stringify(session)
+      );
+    } catch (error) {
+      console.error(
+        "Could not save checkout session:",
+        error
+      );
+    }
+  }, [
+    mode,
+    stage,
+    cart,
+    couponApplied,
+    customerIntervention,
+    checkoutCustomerAction,
+    checkoutError,
+    checkoutPaymentId,
+    paymentFailure,
+    paymentFailureReason,
+    paymentSuccess,
+  ]);
 
   // =====================================================
   // CART
@@ -1031,6 +1164,17 @@ export default function RecoveryLab({
 
         setPaymentSuccess(true);
 
+        try {
+          window.localStorage.removeItem(
+            CHECKOUT_SESSION_STORAGE_KEY
+          );
+        } catch (error) {
+          console.error(
+            "Could not clear saved checkout session:",
+            error
+          );
+        }
+
         setPaymentFailure(false);
 
         setCustomerIntervention(null);
@@ -1226,6 +1370,17 @@ export default function RecoveryLab({
   const resetCheckout = () => {
     razorpayFailureHandledRef.current =
       false;
+
+    try {
+      window.localStorage.removeItem(
+        CHECKOUT_SESSION_STORAGE_KEY
+      );
+    } catch (error) {
+      console.error(
+        "Could not clear saved checkout session:",
+        error
+      );
+    }
 
     setStage("shop");
 
@@ -2034,6 +2189,31 @@ export default function RecoveryLab({
 
               {stage === "checkout" && (
                 <>
+
+                  {restoredCheckoutSession && (
+                    <div className="saved-checkout-banner">
+                      <div className="saved-checkout-icon">
+                        ↻
+                      </div>
+
+                      <div>
+                        <strong>
+                          Your previous checkout is saved
+                        </strong>
+                        <p>
+                          This is the same order you left behind.
+                          Continue the payment without rebuilding
+                          your cart.
+                        </p>
+                      </div>
+
+                      <span>
+                        {paymentFailure
+                          ? "PAYMENT RETRY READY"
+                          : "CHECKOUT SAVED"}
+                      </span>
+                    </div>
+                  )}
 
                   <div className="lab-page-heading compact">
 

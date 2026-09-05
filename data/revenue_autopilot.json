@@ -1,0 +1,86 @@
+{
+  "expected_revenue": 184200,
+  "revenue_at_risk": 53496.0,
+  "recoverable_revenue": 53496.0,
+  "recovered_revenue": 7499.0,
+  "events": [
+    {
+      "event_id": "seed_checkout_001",
+      "payment_id": "autopilot_checkout_001",
+      "source": "checkout",
+      "event_type": "checkout_failed",
+      "customer": "Nova Technologies",
+      "amount": 4999,
+      "status": "at_risk",
+      "recoverable": true,
+      "description": "Checkout payment failed"
+    },
+    {
+      "event_id": "seed_checkout_002",
+      "payment_id": "autopilot_checkout_002",
+      "source": "checkout",
+      "event_type": "checkout_abandoned",
+      "customer": "Acme Systems",
+      "amount": 2499,
+      "status": "at_risk",
+      "recoverable": true,
+      "description": "Checkout abandoned"
+    },
+    {
+      "event_id": "seed_subscription_001",
+      "payment_id": "autopilot_subscription_001",
+      "source": "subscription",
+      "event_type": "subscription_failure",
+      "customer": "Vertex Labs",
+      "amount": 1499,
+      "status": "at_risk",
+      "recoverable": true,
+      "description": "Subscription renewal failed"
+    },
+    {
+      "event_id": "seed_subscription_002",
+      "payment_id": "autopilot_subscription_002",
+      "source": "subscription",
+      "event_type": "subscription_failure",
+      "customer": "BrightDesk",
+      "amount": 3999,
+      "status": "at_risk",
+      "recoverable": true,
+      "description": "Subscription payment method needs attention"
+    },
+    {
+      "event_id": "seed_invoice_001",
+      "payment_id": "autopilot_invoice_001",
+      "source": "invoice",
+      "event_type": "invoice_overdue",
+      "customer": "Orion Systems",
+      "amount": 28000,
+      "status": "at_risk",
+      "recoverable": true,
+      "description": "Invoice became overdue"
+    },
+    {
+      "event_id": "seed_invoice_002",
+      "payment_id": "autopilot_invoice_002",
+      "source": "invoice",
+      "event_type": "promise_missed",
+      "customer": "PixelWorks",
+      "amount": 12500,
+      "status": "at_risk",
+      "recoverable": true,
+      "description": "Promise-to-pay was missed"
+    },
+    {
+      "event_id": "seed_checkout_003",
+      "payment_id": "autopilot_checkout_003",
+      "source": "checkout",
+      "event_type": "checkout_success",
+      "customer": "Zenith Retail",
+      "amount": 7499,
+      "status": "recovered",
+      "recoverable": false,
+      "description": "Checkout payment recovered"
+    }
+  ],
+  "updated_at": "2026-09-05T00:21:38.089395"
+}
